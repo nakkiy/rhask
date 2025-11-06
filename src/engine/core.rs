@@ -1,4 +1,4 @@
-use rhai::{AST, Dynamic, Engine, EvalAltResult, FnPtr, Position};
+use rhai::{Dynamic, Engine, EvalAltResult, FnPtr, Position, AST};
 use std::env;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use super::bindings;
 use crate::logger::*;
 use crate::printer;
-use crate::task::{TaskLookup, TaskRegistry, prepare_arguments_from_cli};
+use crate::task::{prepare_arguments_from_cli, TaskLookup, TaskRegistry};
 
 pub struct ScriptEngine {
     pub engine: Engine,
@@ -19,6 +19,9 @@ pub struct ScriptEngine {
 impl ScriptEngine {
     pub fn new() -> Self {
         let mut engine = Engine::new();
+        // Rhai's register_fn requires closures to be Send + Sync, so we use Arc<Mutex<_>>
+        // even though access is effectively single-threaded.
+        #[allow(clippy::arc_with_non_send_sync)]
         let registry = Arc::new(Mutex::new(TaskRegistry::new()));
         let exec_state = Arc::new(Mutex::new(ExecutionState::default()));
 

@@ -308,11 +308,9 @@ mod tests {
         assert!(registry.groups.contains_key("build_suite"));
         assert!(registry.groups.contains_key("build_suite.release_flow"));
         assert!(registry.tasks.contains_key("build_suite.build"));
-        assert!(
-            registry
-                .tasks
-                .contains_key("build_suite.release_flow.deploy")
-        );
+        assert!(registry
+            .tasks
+            .contains_key("build_suite.release_flow.deploy"));
     }
 
     #[test]
@@ -350,10 +348,9 @@ mod tests {
     fn description_outside_context_fails() {
         let mut registry = TaskRegistry::new();
         let err = registry.set_description("no context").unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("description() can only be used inside task() or group().")
-        );
+        assert!(err
+            .to_string()
+            .contains("description() can only be used inside task() or group()."));
     }
 
     #[test]
@@ -363,9 +360,8 @@ mod tests {
         params.insert("profile".into(), Dynamic::from("release"));
 
         let err = registry.set_args(params).unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("args() can only be used inside task().")
-        );
+        assert!(err
+            .to_string()
+            .contains("args() can only be used inside task()."));
     }
 }

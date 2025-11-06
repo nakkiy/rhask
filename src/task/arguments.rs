@@ -3,8 +3,9 @@ use rhai::{Dynamic, EvalAltResult, ImmutableString};
 
 use crate::logger::{debug, trace};
 
-use super::model::{TaskRegistry, context_error};
+use super::model::{context_error, TaskRegistry};
 
+#[allow(clippy::type_complexity)]
 pub fn parse_cli_arguments(
     raw_args: &[String],
 ) -> Result<(Vec<String>, IndexMap<String, String>), Box<EvalAltResult>> {
@@ -48,7 +49,8 @@ pub fn parse_cli_arguments(
     }
     trace!(
         "parse_cli_arguments result -> positional={:?}, named={:?}",
-        positional, named
+        positional,
+        named
     );
     Ok((positional, named))
 }
@@ -60,7 +62,8 @@ pub fn prepare_arguments_from_cli(
 ) -> Result<Vec<Dynamic>, Box<EvalAltResult>> {
     trace!(
         "prepare_arguments_from_cli: task='{}', raw_args={:?}",
-        task_name, raw_args
+        task_name,
+        raw_args
     );
     let (positional, named) = parse_cli_arguments(raw_args)?;
     prepare_arguments_from_parts(registry, task_name, positional, named)

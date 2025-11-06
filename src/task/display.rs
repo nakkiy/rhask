@@ -1,4 +1,4 @@
-use super::model::{RegistryEntry, TaskRegistry, leaf_name};
+use super::model::{leaf_name, RegistryEntry, TaskRegistry};
 use crate::logger::trace;
 
 #[derive(Debug, Default, Clone)]
@@ -202,14 +202,16 @@ impl TaskRegistry {
                 let full_path = matches.into_iter().next().unwrap();
                 trace!(
                     "group '{}' resolved to unique match '{}'",
-                    trimmed, full_path
+                    trimmed,
+                    full_path
                 );
                 GroupLookup::Found(full_path)
             }
             _ => {
                 trace!(
                     "group '{}' resolved to ambiguous matches {:?}",
-                    trimmed, matches
+                    trimmed,
+                    matches
                 );
                 GroupLookup::Ambiguous(matches)
             }

@@ -5,10 +5,10 @@ use rhai::{
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 
-use super::core::{ActionScope, ExecutionState, actions_only_error};
+use super::core::{actions_only_error, ActionScope, ExecutionState};
 use crate::logger::{error, trace, warn};
 use crate::printer;
-use crate::task::{TaskLookup, TaskRegistry, prepare_arguments_from_parts};
+use crate::task::{prepare_arguments_from_parts, TaskLookup, TaskRegistry};
 
 type RegistryRef = Arc<Mutex<TaskRegistry>>;
 
@@ -152,7 +152,9 @@ fn trigger_impl(
 ) -> Result<(), Box<EvalAltResult>> {
     trace!(
         "trigger_impl called: name='{}', positional={:?}, named={:?}",
-        name, positional, named
+        name,
+        positional,
+        named
     );
     let lookup = {
         let reg = registry.lock().unwrap();
