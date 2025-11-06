@@ -1,4 +1,4 @@
-use super::model::{TaskRegistry, leaf_name};
+use super::model::{leaf_name, TaskRegistry};
 use crate::logger::trace;
 
 pub enum TaskLookup {
@@ -50,14 +50,16 @@ impl TaskRegistry {
                 let full_path = matches.into_iter().next().unwrap();
                 trace!(
                     "resolve_task: leaf '{}' resolved uniquely to '{}'",
-                    trimmed, full_path
+                    trimmed,
+                    full_path
                 );
                 TaskLookup::Found { full_path }
             }
             _ => {
                 trace!(
                     "resolve_task: leaf '{}' ambiguous matches {:?}",
-                    trimmed, matches
+                    trimmed,
+                    matches
                 );
                 TaskLookup::Ambiguous(matches)
             }

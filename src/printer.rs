@@ -64,12 +64,10 @@ pub fn print_list(output: &ListOutput) {
 
         if use_color {
             info(format_colored_line(item.kind, &base, desc_plain.as_deref()));
+        } else if let Some(desc) = desc_plain {
+            info(format!("{}{}", base, desc));
         } else {
-            if let Some(desc) = desc_plain {
-                info(format!("{}{}", base, desc));
-            } else {
-                info(base);
-            }
+            info(base);
         }
     }
 }

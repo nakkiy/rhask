@@ -1,10 +1,15 @@
 [package]
 name = "rhask"
 version = "0.1.0"
-edition = "2024"
-description = "Task runner powered by Rhai."
+edition = "2021"
+description = "Rhai-based Task Runner."
+repository = "https://github.com/nakkiy/rhask"
+homepage = "https://github.com/nakkiy/rhask"
+documentation = "https://github.com/nakkiy/rhask"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
+keywords = ["task-runner", "automation", "cli", "rhai"]
+categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
 name = "rhask"
