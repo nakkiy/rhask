@@ -22,6 +22,9 @@ pub enum Commands {
     List(ListOptions),
     /// Run a task (`rhask run -h` for details)
     Run(RunOptions),
+    /// Execute a task directly (shorthand for `rhask run <task>`)
+    #[command(external_subcommand)]
+    Direct(Vec<String>),
 }
 
 #[derive(Args, Debug)]
