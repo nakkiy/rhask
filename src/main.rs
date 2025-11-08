@@ -34,7 +34,7 @@ fn main() -> Result<(), Box<EvalAltResult>> {
 fn dispatcher(cmd: cli::Commands, engine: engine::ScriptEngine) -> Result<(), Box<EvalAltResult>> {
     match cmd {
         cli::Commands::List(opts) => {
-            engine.list_tasks(opts.group.as_deref());
+            engine.list_tasks(opts.group.as_deref(), opts.flat);
             Ok(())
         }
         cli::Commands::Run(opts) => run_with_logging(engine, &opts.task, &opts.args),

@@ -30,6 +30,7 @@ rhask run <task>
 - Task definitions live in `rhaskfile.rhai` at the repository root.
 - At startup Rhask searches the current directory and walks up parent directories until it finds `rhaskfile.rhai` (override with `-f` / `--file`).
 - `rhask list` renders tasks and groups as a tree.
+- `rhask list --flat` (or `-F`) prints each task as `full.path<TAB>Description`, which is convenient for piping into `fzf`, `peco`, etc.
 - `rhask run` (or the shorthand `rhask <task>`) accepts both short names and fully qualified names. When a name is ambiguous, Rhask prints the candidates and asks you to re-run with a full path.
 - Use `description()`, `actions()`, and `args()` inside `task()` or `group()` blocks to declare metadata, logic, and parameters.
 - Arguments support positional values, `key=value`, `--key=value`, and `--key value` styles. Defaults and required flags are declared via `args(#{ ... })`.
@@ -44,6 +45,7 @@ rhask run <task>
 | Command | Description |
 | --- | --- |
 | `rhask list [group]` | Display tasks/groups as a tree. Passing `group` limits the output to that subtree; use fully qualified names like `deploy.staging` for nested groups. |
+| `rhask list --flat` / `rhask list -F` | Emit each task as `full.path` followed by an aligned description. Works with `group` filters and is ideal for piping into tools such as `fzf`. |
 | `rhask run <task> [args…]` | Execute a task. Supports both short names and fully qualified names; ambiguous leaves print candidate paths and abort. You can omit `run` and type `rhask <task>` as shorthand. |
 | `rhask -f <file> …` | Explicitly load a Rhai script (the flag can appear anywhere in the command). |
 
