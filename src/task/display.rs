@@ -25,24 +25,27 @@ pub struct ListItem {
     pub kind: ListItemKind,
     pub depth: usize,
     pub name: String,
+    pub full_name: String,
     pub description: Option<String>,
 }
 
 impl ListItem {
-    fn group(depth: usize, name: String, description: Option<String>) -> Self {
+    fn group(depth: usize, full_name: String, description: Option<String>) -> Self {
         Self {
             kind: ListItemKind::Group,
             depth,
-            name,
+            name: leaf_name(&full_name).to_string(),
+            full_name,
             description,
         }
     }
 
-    fn task(depth: usize, name: String, description: Option<String>) -> Self {
+    fn task(depth: usize, full_name: String, description: Option<String>) -> Self {
         Self {
             kind: ListItemKind::Task,
             depth,
-            name,
+            name: leaf_name(&full_name).to_string(),
+            full_name,
             description,
         }
     }
@@ -60,6 +63,12 @@ pub struct ListMessage {
     pub text: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListRenderMode {
+    Tree,
+    Flat,
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ListMessageLevel {
@@ -69,9 +78,9 @@ pub enum ListMessageLevel {
 }
 
 impl TaskRegistry {
-    pub fn list(&self, group: Option<&str>) {
+    pub fn list(&self, group: Option<&str>, mode: ListRenderMode) {
         let output = self.collect_list_output(group);
-        crate::printer::print_list(&output);
+        crate::printer::print_list(&output, mode);
     }
 
     fn collect_list_output(&self, group: Option<&str>) -> ListOutput {
@@ -111,7 +120,7 @@ impl TaskRegistry {
             for (full_path, task) in self.tasks.iter() {
                 output.push_item(ListItem::task(
                     0,
-                    leaf_name(full_path).to_string(),
+                    full_path.to_string(),
                     task.description.clone(),
                 ));
             }
@@ -136,31 +145,26 @@ impl TaskRegistry {
         if let Some(task) = self.tasks.get(full_path) {
             output.push_item(ListItem::task(
                 depth,
-                leaf_name(full_path).to_string(),
+                full_path.to_string(),
                 task.description.clone(),
             ));
         } else {
-            output.push_item(ListItem::task(
-                depth,
-                leaf_name(full_path).to_string(),
-                None,
-            ));
+            output.push_item(ListItem::task(depth, full_path.to_string(), None));
         }
     }
 
     fn collect_group(&self, full_path: &str, depth: usize, output: &mut ListOutput) {
         if let Some(group) = self.groups.get(full_path) {
-            let name = leaf_name(full_path).to_string();
-            output.push_item(ListItem::group(depth, name, group.description.clone()));
+            output.push_item(ListItem::group(
+                depth,
+                full_path.to_string(),
+                group.description.clone(),
+            ));
             for entry in &group.entries {
                 self.collect_entry(entry, depth + 1, output);
             }
         } else {
-            output.push_item(ListItem::group(
-                depth,
-                leaf_name(full_path).to_string(),
-                None,
-            ));
+            output.push_item(ListItem::group(depth, full_path.to_string(), None));
         }
     }
 }

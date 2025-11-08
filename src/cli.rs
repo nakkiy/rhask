@@ -22,6 +22,9 @@ pub enum Commands {
     List(ListOptions),
     /// Run a task (`rhask run -h` for details)
     Run(RunOptions),
+    /// Execute a task directly (shorthand for `rhask run <task>`)
+    #[command(external_subcommand)]
+    Direct(Vec<String>),
 }
 
 #[derive(Args, Debug)]
@@ -29,6 +32,10 @@ pub struct ListOptions {
     /// Group name to display (omit to show every task)
     #[arg(name = "GROUP")]
     pub group: Option<String>,
+
+    /// Print tasks as flat full paths (good for piping into fzf)
+    #[arg(short = 'F', long = "flat")]
+    pub flat: bool,
 }
 
 #[derive(Args, Debug)]

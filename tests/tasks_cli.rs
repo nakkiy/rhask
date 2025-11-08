@@ -1,5 +1,8 @@
 use assert_cmd::Command;
-use predicates::{prelude::PredicateBooleanExt, str::contains};
+use predicates::{
+    prelude::PredicateBooleanExt,
+    str::{contains, is_match},
+};
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
@@ -30,6 +33,21 @@ fn list_prints_groups_and_tasks() {
         .assert()
         .success()
         .stdout(contains("> build_suite").and(contains("- build_debug")));
+}
+
+#[test]
+fn list_flat_prints_full_paths() {
+    let fixture = fixture_rhaskfile();
+    let fixture_str = fixture.to_str().expect("utf8 fixture path").to_string();
+    rhask()
+        .args(["--file", fixture_str.as_str(), "list", "--flat"])
+        .assert()
+        .success()
+        .stdout(
+            is_match(r"build_suite\.release_flow\.deploy_staging\s+Deploy to staging")
+                .expect("regex compile"),
+        )
+        .stdout(is_match(r"clean\s+Remove build artifacts").expect("regex compile"));
 }
 
 #[test]
@@ -70,6 +88,34 @@ fn run_unique_task_by_leaf_name() {
         .assert()
         .success()
         .stdout(contains("Cleanup completed"));
+}
+
+#[test]
+fn shorthand_run_executes_task() {
+    let fixture = fixture_rhaskfile();
+    let fixture_str = fixture.to_str().expect("utf8 fixture path").to_string();
+    rhask()
+        .args(["--file", fixture_str.as_str(), "clean"])
+        .assert()
+        .success()
+        .stdout(contains("Cleanup completed"));
+}
+
+#[test]
+fn shorthand_run_accepts_arguments() {
+    let fixture = fixture_rhaskfile();
+    let fixture_str = fixture.to_str().expect("utf8 fixture path").to_string();
+    rhask()
+        .args([
+            "--file",
+            fixture_str.as_str(),
+            "build",
+            "release",
+            "--target=x86_64-pc-windows-gnu",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("profile:release").and(contains("target:x86_64-pc-windows-gnu")));
 }
 
 #[test]

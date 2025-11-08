@@ -21,8 +21,8 @@ group("sample", || {
         task("stop_on_error", || {
             description("Stop the flow on error");
             actions(|| {
-                trigger("demo.always_fail");
-                trigger("demo.echo_success"); // should not run
+                trigger("sample.demo.always_fail");
+                trigger("sample.demo.echo_success"); // should not run
             });
         });
 
@@ -30,11 +30,11 @@ group("sample", || {
             description("Continue even if an error occurs");
             actions(|| {
                 try {
-                    trigger("demo.always_fail");
+                    trigger("sample.demo.always_fail");
                 } catch {
                     print("always_fail failed but continuing");
                 }
-                trigger("demo.echo_success");
+                trigger("sample.demo.echo_success");
             });
         });
     });

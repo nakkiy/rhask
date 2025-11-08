@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use super::bindings;
 use crate::logger::*;
 use crate::printer;
-use crate::task::{prepare_arguments_from_cli, TaskLookup, TaskRegistry};
+use crate::task::{prepare_arguments_from_cli, ListRenderMode, TaskLookup, TaskRegistry};
 
 pub struct ScriptEngine {
     pub engine: Engine,
@@ -55,8 +55,13 @@ impl ScriptEngine {
         Ok(())
     }
 
-    pub fn list_tasks(&self, group: Option<&str>) {
-        self.registry.lock().unwrap().list(group);
+    pub fn list_tasks(&self, group: Option<&str>, flat: bool) {
+        let mode = if flat {
+            ListRenderMode::Flat
+        } else {
+            ListRenderMode::Tree
+        };
+        self.registry.lock().unwrap().list(group, mode);
     }
 
     pub fn run_task(&self, name: &str, raw_args: &[String]) -> Result<(), Box<EvalAltResult>> {
