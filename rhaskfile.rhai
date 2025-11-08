@@ -1,3 +1,20 @@
+task("fzf", || {
+    description("choose and run a task via fzf (optionally scoped to a group)");
+    args(#{
+        group: ""
+    });
+    actions(|group| {
+        let list_cmd = if group.is_empty() {
+            "rhask list -F".to_string()
+        } else {
+            "rhask list -F ".to_string() + group
+        };
+        exec(
+            list_cmd + " | fzf | awk '{print $1}' | xargs -r rhask run"
+        );
+    });
+});
+
 group("build_suite", || {
     description("Collection of build-related tasks");
 
@@ -47,4 +64,5 @@ group("build_suite", || {
     });
 });
 
-import "samplerhaskfile";
+import "rhaskfile_demo";
+import "rhaskfile_sample";

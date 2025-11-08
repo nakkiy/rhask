@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io::{self, IsTerminal, Write};
 use std::sync::OnceLock;
 
-use crate::task::{ListItemKind, ListMessageLevel, ListOutput};
+use crate::task::{ListItemKind, ListMessageLevel, ListOutput, ListRenderMode};
 
 const RESET: &str = "\x1b[0m";
 const FG_CYAN: &str = "\x1b[36m";
@@ -28,7 +28,7 @@ fn write_line(mut target: impl Write, message: &str) {
     let _ = writeln!(target, "{}", message);
 }
 
-pub fn print_list(output: &ListOutput) {
+pub fn print_list(output: &ListOutput, mode: ListRenderMode) {
     for message in &output.messages {
         match message.level {
             ListMessageLevel::Info => info(&message.text),
@@ -37,6 +37,14 @@ pub fn print_list(output: &ListOutput) {
         }
     }
 
+    let use_color = colors_enabled();
+    match mode {
+        ListRenderMode::Tree => print_tree(output, use_color),
+        ListRenderMode::Flat => print_flat(output, use_color),
+    }
+}
+
+fn print_tree(output: &ListOutput, use_color: bool) {
     let mut width_per_depth: HashMap<usize, usize> = HashMap::new();
     for item in &output.items {
         let name_width = item.name.chars().count();
@@ -45,8 +53,6 @@ pub fn print_list(output: &ListOutput) {
             .and_modify(|width| *width = (*width).max(name_width))
             .or_insert(name_width);
     }
-
-    let use_color = colors_enabled();
 
     for item in &output.items {
         let indent = "  ".repeat(item.depth);
@@ -68,6 +74,42 @@ pub fn print_list(output: &ListOutput) {
             info(format!("{}{}", base, desc));
         } else {
             info(base);
+        }
+    }
+}
+
+fn print_flat(output: &ListOutput, use_color: bool) {
+    let max_name_width = output
+        .items
+        .iter()
+        .filter(|item| item.kind == ListItemKind::Task)
+        .map(|item| item.full_name.chars().count())
+        .max()
+        .unwrap_or(0);
+
+    for item in &output.items {
+        if item.kind != ListItemKind::Task {
+            continue;
+        }
+        let padded_name = format!(
+            "{name:<width$}",
+            name = item.full_name,
+            width = max_name_width
+        );
+        if let Some(desc) = &item.description {
+            if use_color {
+                info(format!(
+                    "{FG_CYAN}{name}{RESET}  {FG_BRIGHT_BLACK}{desc}{RESET}",
+                    name = padded_name,
+                    desc = desc
+                ));
+            } else {
+                info(format!("{}  {}", padded_name, desc));
+            }
+        } else if use_color {
+            info(format!("{FG_CYAN}{name}{RESET}", name = padded_name));
+        } else {
+            info(&padded_name);
         }
     }
 }
