@@ -73,6 +73,34 @@ fn run_unique_task_by_leaf_name() {
 }
 
 #[test]
+fn shorthand_run_executes_task() {
+    let fixture = fixture_rhaskfile();
+    let fixture_str = fixture.to_str().expect("utf8 fixture path").to_string();
+    rhask()
+        .args(["--file", fixture_str.as_str(), "clean"])
+        .assert()
+        .success()
+        .stdout(contains("Cleanup completed"));
+}
+
+#[test]
+fn shorthand_run_accepts_arguments() {
+    let fixture = fixture_rhaskfile();
+    let fixture_str = fixture.to_str().expect("utf8 fixture path").to_string();
+    rhask()
+        .args([
+            "--file",
+            fixture_str.as_str(),
+            "build",
+            "release",
+            "--target=x86_64-pc-windows-gnu",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("profile:release").and(contains("target:x86_64-pc-windows-gnu")));
+}
+
+#[test]
 fn run_requires_full_path_when_ambiguous() {
     let fixture = fixture_rhaskfile();
     let fixture_str = fixture.to_str().expect("utf8 fixture path").to_string();

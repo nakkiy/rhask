@@ -5,7 +5,7 @@ mod printer;
 mod task;
 
 use crate::logger::*;
-use rhai::EvalAltResult;
+use rhai::{EvalAltResult, Position};
 
 fn main() -> Result<(), Box<EvalAltResult>> {
     logger::init();
@@ -37,9 +37,30 @@ fn dispatcher(cmd: cli::Commands, engine: engine::ScriptEngine) -> Result<(), Bo
             engine.list_tasks(opts.group.as_deref());
             Ok(())
         }
-        cli::Commands::Run(opts) => engine.run_task(&opts.task, &opts.args).map_err(|err| {
-            error!("failed to execute command: {}", err);
-            err
-        }),
+        cli::Commands::Run(opts) => run_with_logging(engine, &opts.task, &opts.args),
+        cli::Commands::Direct(raw) => {
+            let (task, args) = raw.split_first().ok_or_else(|| missing_task_name_error())?;
+            run_with_logging(engine, task, args)
+        }
     }
+}
+
+fn run_with_logging(
+    engine: engine::ScriptEngine,
+    task: &str,
+    args: &[String],
+) -> Result<(), Box<EvalAltResult>> {
+    engine.run_task(task, args).map_err(|err| {
+        error!("failed to execute command: {}", err);
+        err
+    })
+}
+
+fn missing_task_name_error() -> Box<EvalAltResult> {
+    Box::new(EvalAltResult::ErrorRuntime(
+        "Task name is required when omitting the 'run' subcommand."
+            .to_string()
+            .into(),
+        Position::NONE,
+    ))
 }

@@ -21,6 +21,7 @@ rhask run <task>
 
 - Place `rhaskfile.rhai` at your repository root (copy `rhaskfile_demo.rhai` or `rhaskfile_sample.rhai` to get started).
 - To try the demo without touching your root, run `rhask -f ./rhaskfile_demo.rhai list`.
+- You can skip the `run` subcommand and execute tasks as `rhask <task>`; it behaves exactly like `rhask run <task>`.
 
 ---
 
@@ -29,7 +30,7 @@ rhask run <task>
 - Task definitions live in `rhaskfile.rhai` at the repository root.
 - At startup Rhask searches the current directory and walks up parent directories until it finds `rhaskfile.rhai` (override with `-f` / `--file`).
 - `rhask list` renders tasks and groups as a tree.
-- `rhask run` accepts both short names and fully qualified names. When a name is ambiguous, Rhask prints the candidates and asks you to re-run with a full path.
+- `rhask run` (or the shorthand `rhask <task>`) accepts both short names and fully qualified names. When a name is ambiguous, Rhask prints the candidates and asks you to re-run with a full path.
 - Use `description()`, `actions()`, and `args()` inside `task()` or `group()` blocks to declare metadata, logic, and parameters.
 - Arguments support positional values, `key=value`, `--key=value`, and `--key value` styles. Defaults and required flags are declared via `args(#{ ... })`.
 - Logging is powered by `env_logger`. Regular runs stay quiet, while `RUST_LOG=debug rhask run …` surfaces the internal trace.
@@ -43,7 +44,7 @@ rhask run <task>
 | Command | Description |
 | --- | --- |
 | `rhask list [group]` | Display tasks/groups as a tree. Passing `group` limits the output to that subtree; use fully qualified names like `deploy.staging` for nested groups. |
-| `rhask run <task> [args…]` | Execute a task. Supports both short names and fully qualified names; ambiguous leaves print candidate paths and abort. |
+| `rhask run <task> [args…]` | Execute a task. Supports both short names and fully qualified names; ambiguous leaves print candidate paths and abort. You can omit `run` and type `rhask <task>` as shorthand. |
 | `rhask -f <file> …` | Explicitly load a Rhai script (the flag can appear anywhere in the command). |
 
 ### Passing Arguments
