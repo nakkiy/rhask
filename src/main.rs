@@ -39,7 +39,7 @@ fn dispatcher(cmd: cli::Commands, engine: engine::ScriptEngine) -> Result<(), Bo
         }
         cli::Commands::Run(opts) => run_with_logging(engine, &opts.task, &opts.args),
         cli::Commands::Direct(raw) => {
-            let (task, args) = raw.split_first().ok_or_else(|| missing_task_name_error())?;
+            let (task, args) = raw.split_first().ok_or_else(missing_task_name_error)?;
             run_with_logging(engine, task, args)
         }
     }
