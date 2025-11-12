@@ -3,8 +3,8 @@ use rhai::{plugin::*, Array, Engine, EvalAltResult, FnPtr, Map, NativeCallContex
 use std::process::Command;
 
 use super::runtime::{
-    array_to_positional, contextual_block, ensure_actions_scope, map_to_named, runtime_from_ctx,
-    trigger_impl, with_registry,
+    array_to_positional, ensure_actions_scope, map_to_named, runtime_from_ctx, trigger_impl,
+    with_build_stack, ScopeGuard, ScopeKind,
 };
 
 pub fn register(engine: &mut Engine) {
@@ -21,13 +21,8 @@ pub mod rhask_api {
         identifier: &str,
         func: FnPtr,
     ) -> Result<(), Box<EvalAltResult>> {
-        contextual_block(
-            &ctx,
-            identifier,
-            func,
-            |registry, name| registry.begin_task(name),
-            |registry| registry.end_task(),
-        )
+        let _guard = ScopeGuard::enter(&ctx, identifier, ScopeKind::Task)?;
+        func.call_within_context::<()>(&ctx, ())
     }
 
     #[rhai_fn(global, name = "group", return_raw)]
@@ -36,23 +31,18 @@ pub mod rhask_api {
         identifier: &str,
         func: FnPtr,
     ) -> Result<(), Box<EvalAltResult>> {
-        contextual_block(
-            &ctx,
-            identifier,
-            func,
-            |registry, name| registry.begin_group(name),
-            |registry| registry.end_group(),
-        )
+        let _guard = ScopeGuard::enter(&ctx, identifier, ScopeKind::Group)?;
+        func.call_within_context::<()>(&ctx, ())
     }
 
     #[rhai_fn(global, name = "actions", return_raw)]
     pub fn register_actions(ctx: NativeCallContext, func: FnPtr) -> Result<(), Box<EvalAltResult>> {
-        with_registry(&ctx, move |registry| registry.set_actions(func))
+        with_build_stack(&ctx, move |stack| stack.set_actions(func))
     }
 
     #[rhai_fn(global, name = "description", return_raw)]
     pub fn set_description(ctx: NativeCallContext, desc: &str) -> Result<(), Box<EvalAltResult>> {
-        with_registry(&ctx, |registry| registry.set_description(desc))
+        with_build_stack(&ctx, |stack| stack.set_description(desc))
     }
 
     #[rhai_fn(global, name = "discription", return_raw)]
@@ -62,7 +52,7 @@ pub mod rhask_api {
 
     #[rhai_fn(global, name = "args", return_raw)]
     pub fn set_args(ctx: NativeCallContext, params: Map) -> Result<(), Box<EvalAltResult>> {
-        with_registry(&ctx, move |registry| registry.set_args(params))
+        with_build_stack(&ctx, move |stack| stack.set_args(params))
     }
 
     #[rhai_fn(global, name = "exec", return_raw)]

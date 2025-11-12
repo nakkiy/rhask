@@ -7,21 +7,28 @@ use std::sync::{Arc, Mutex};
 use super::core::{actions_only_error, ActionScope, ExecutionState};
 use crate::logger::{error, trace, warn};
 use crate::printer;
-use crate::task::{prepare_arguments_from_parts, TaskLookup, TaskRegistry};
+use crate::task::{prepare_arguments_from_parts, BuildStack, TaskLookup, TaskRegistry};
 
 pub(super) type RegistryRef = Arc<Mutex<TaskRegistry>>;
+pub(super) type BuildStackRef = Arc<Mutex<BuildStack>>;
 
 #[derive(Clone)]
 pub(super) struct RuntimeHandle {
     pub(super) registry: RegistryRef,
     pub(super) exec_state: Arc<Mutex<ExecutionState>>,
+    pub(super) build_stack: BuildStackRef,
 }
 
 impl RuntimeHandle {
-    pub(super) fn new(registry: RegistryRef, exec_state: Arc<Mutex<ExecutionState>>) -> Self {
+    pub(super) fn new(
+        registry: RegistryRef,
+        exec_state: Arc<Mutex<ExecutionState>>,
+        build_stack: BuildStackRef,
+    ) -> Self {
         Self {
             registry,
             exec_state,
+            build_stack,
         }
     }
 }
@@ -51,10 +58,7 @@ pub(super) fn trigger_impl(
             let (func, args) = {
                 let reg = registry.lock().unwrap();
                 let args = prepare_arguments_from_parts(&reg, &full_path, positional, named)?;
-                let action = reg
-                    .tasks
-                    .get(&full_path)
-                    .and_then(|task| task.actions.clone());
+                let action = reg.task(&full_path).and_then(|task| task.actions.clone());
                 (action, args)
             };
 
@@ -163,28 +167,101 @@ pub(super) fn ensure_actions_scope(
     Ok(())
 }
 
-pub(super) fn with_registry<F, R>(ctx: &NativeCallContext, op: F) -> Result<R, Box<EvalAltResult>>
+pub(super) fn with_build_stack<F, R>(
+    ctx: &NativeCallContext,
+    op: F,
+) -> Result<R, Box<EvalAltResult>>
 where
-    F: FnOnce(&mut TaskRegistry) -> Result<R, Box<EvalAltResult>>,
+    F: FnOnce(&mut BuildStack) -> Result<R, Box<EvalAltResult>>,
 {
     let runtime = runtime_from_ctx(ctx)?;
-    let mut registry = runtime.registry.lock().unwrap();
-    op(&mut registry)
+    let mut stack = runtime.build_stack.lock().unwrap();
+    op(&mut stack)
 }
 
-pub(super) fn contextual_block<FStart, FEnd>(
-    ctx: &NativeCallContext,
-    identifier: &str,
-    func: FnPtr,
-    start: FStart,
-    end: FEnd,
-) -> Result<(), Box<EvalAltResult>>
-where
-    FStart: Fn(&mut TaskRegistry, &str) -> Result<(), Box<EvalAltResult>>,
-    FEnd: Fn(&mut TaskRegistry) -> Result<(), Box<EvalAltResult>>,
-{
-    with_registry(ctx, |registry| start(registry, identifier))?;
-    let result = func.call_within_context::<()>(ctx, ());
-    with_registry(ctx, |registry| end(registry))?;
-    result
+#[derive(Clone, Copy)]
+pub(super) enum ScopeKind {
+    Task,
+    Group,
+}
+
+pub(super) struct ScopeGuard {
+    registry: RegistryRef,
+    build_stack: BuildStackRef,
+    kind: ScopeKind,
+    label: String,
+    active: bool,
+}
+
+impl ScopeGuard {
+    pub(super) fn enter(
+        ctx: &NativeCallContext,
+        identifier: &str,
+        kind: ScopeKind,
+    ) -> Result<Self, Box<EvalAltResult>> {
+        let runtime = runtime_from_ctx(ctx)?;
+        {
+            let mut stack = runtime.build_stack.lock().unwrap();
+            match kind {
+                ScopeKind::Task => {
+                    let registry = runtime.registry.lock().unwrap();
+                    stack.begin_task(&registry, identifier)?
+                }
+                ScopeKind::Group => {
+                    let registry = runtime.registry.lock().unwrap();
+                    stack.begin_group(&registry, identifier)?
+                }
+            }
+        }
+        Ok(Self {
+            registry: runtime.registry.clone(),
+            build_stack: runtime.build_stack.clone(),
+            kind,
+            label: identifier.to_string(),
+            active: true,
+        })
+    }
+}
+
+impl Drop for ScopeGuard {
+    fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
+        let mut stack = match self.build_stack.lock() {
+            Ok(guard) => guard,
+            Err(err) => {
+                error!(
+                    "ScopeGuard: failed to lock build stack while ending '{}': {}",
+                    self.label, err
+                );
+                return;
+            }
+        };
+        let mut registry = match self.registry.lock() {
+            Ok(guard) => guard,
+            Err(err) => {
+                error!(
+                    "ScopeGuard: failed to lock registry while ending '{}': {}",
+                    self.label, err
+                );
+                return;
+            }
+        };
+
+        if let Err(err) = match self.kind {
+            ScopeKind::Task => stack.end_task(&mut registry),
+            ScopeKind::Group => stack.end_group(&mut registry),
+        } {
+            error!(
+                "ScopeGuard: failed to close {} '{}': {}",
+                match self.kind {
+                    ScopeKind::Task => "task",
+                    ScopeKind::Group => "group",
+                },
+                self.label,
+                err
+            );
+        }
+    }
 }

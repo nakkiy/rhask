@@ -116,8 +116,8 @@ impl TaskRegistry {
             return output;
         }
 
-        if self.root_entries.is_empty() {
-            for (full_path, task) in self.tasks.iter() {
+        if self.root_entries().is_empty() {
+            for (full_path, task) in self.tasks_iter() {
                 output.push_item(ListItem::task(
                     0,
                     full_path.to_string(),
@@ -127,7 +127,7 @@ impl TaskRegistry {
             return output;
         }
 
-        for entry in &self.root_entries {
+        for entry in self.root_entries() {
             self.collect_entry(entry, 0, &mut output);
         }
 
@@ -142,7 +142,7 @@ impl TaskRegistry {
     }
 
     fn collect_task(&self, full_path: &str, depth: usize, output: &mut ListOutput) {
-        if let Some(task) = self.tasks.get(full_path) {
+        if let Some(task) = self.task(full_path) {
             output.push_item(ListItem::task(
                 depth,
                 full_path.to_string(),
@@ -154,7 +154,7 @@ impl TaskRegistry {
     }
 
     fn collect_group(&self, full_path: &str, depth: usize, output: &mut ListOutput) {
-        if let Some(group) = self.groups.get(full_path) {
+        if let Some(group) = self.group(full_path) {
             output.push_item(ListItem::group(
                 depth,
                 full_path.to_string(),
@@ -183,7 +183,7 @@ impl TaskRegistry {
         }
         trace!("resolving group '{}'", trimmed);
 
-        if self.groups.contains_key(trimmed) {
+        if self.contains_group(trimmed) {
             trace!("group '{}' found exact match", trimmed);
             return GroupLookup::Found(trimmed.to_string());
         }
@@ -194,10 +194,9 @@ impl TaskRegistry {
         }
 
         let matches: Vec<String> = self
-            .groups
-            .keys()
+            .groups_iter()
+            .map(|(full_path, _)| full_path.clone())
             .filter(|full_path| leaf_name(full_path) == trimmed)
-            .cloned()
             .collect();
 
         match matches.len() {
