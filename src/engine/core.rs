@@ -141,6 +141,12 @@ impl ScriptEngine {
     }
 }
 
+impl Default for ScriptEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct ExecutionState {
     depth: usize,
