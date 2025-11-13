@@ -1,5 +1,4 @@
-use super::{BuildStack, TaskRegistry};
-use crate::task::TaskLookup;
+use crate::task::{BuildStack, TaskLookup, TaskRegistry};
 use rhai::{Dynamic, FnPtr, Map};
 
 fn dummy_fn_ptr() -> FnPtr {
@@ -15,12 +14,6 @@ fn task_registration_and_context() {
 
     stack.set_description("desc").unwrap();
     stack.set_actions(dummy_fn_ptr()).unwrap();
-
-    {
-        let task = stack.current_task_mut().unwrap();
-        assert_eq!(task.description.as_deref(), Some("desc"));
-        assert!(task.actions.is_some());
-    }
 
     stack.end_task(&mut registry).unwrap();
 

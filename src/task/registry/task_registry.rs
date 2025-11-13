@@ -1,12 +1,12 @@
 use indexmap::IndexMap;
 
-use super::types::{Group, RegistryEntry, Task};
+use crate::task::model::{Group, RegistryEntry, Task};
 
 #[derive(Clone)]
 pub struct TaskRegistry {
-    pub(super) tasks: IndexMap<String, Task>,
-    pub(super) groups: IndexMap<String, Group>,
-    pub(super) root_entries: Vec<RegistryEntry>,
+    tasks: IndexMap<String, Task>,
+    groups: IndexMap<String, Group>,
+    root_entries: Vec<RegistryEntry>,
 }
 
 impl Default for TaskRegistry {
@@ -51,11 +51,23 @@ impl TaskRegistry {
     pub(crate) fn groups_iter(&self) -> impl Iterator<Item = (&String, &Group)> {
         self.groups.iter()
     }
+
+    pub(crate) fn insert_task_entry(&mut self, full_path: String, task: Task) {
+        self.tasks.insert(full_path, task);
+    }
+
+    pub(crate) fn insert_group_entry(&mut self, full_path: String, group: Group) {
+        self.groups.insert(full_path, group);
+    }
+
+    pub(crate) fn push_root_entry(&mut self, entry: RegistryEntry) {
+        self.root_entries.push(entry);
+    }
 }
 
 #[cfg(test)]
 impl TaskRegistry {
     pub fn insert_task_for_test(&mut self, name: &str) {
-        self.tasks.insert(name.to_string(), Task::default());
+        self.insert_task_entry(name.to_string(), Task::default());
     }
 }

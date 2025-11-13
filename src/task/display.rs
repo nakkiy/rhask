@@ -1,4 +1,5 @@
-use super::model::{leaf_name, RegistryEntry, TaskRegistry};
+use super::model::{leaf_name, RegistryEntry};
+use super::registry::TaskRegistry;
 use crate::logger::trace;
 
 #[derive(Debug, Default, Clone)]
