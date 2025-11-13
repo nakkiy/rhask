@@ -7,13 +7,16 @@ use std::sync::{Arc, Mutex};
 use super::bindings;
 use crate::logger::*;
 use crate::printer;
-use crate::task::{prepare_arguments_from_cli, ListRenderMode, TaskLookup, TaskRegistry};
+use crate::task::{
+    prepare_arguments_from_cli, BuildStack, ListRenderMode, TaskLookup, TaskRegistry,
+};
 
 pub struct ScriptEngine {
     pub engine: Engine,
     pub registry: Arc<Mutex<TaskRegistry>>,
     pub ast: Option<AST>,
     pub(crate) exec_state: Arc<Mutex<ExecutionState>>,
+    pub(crate) build_stack: Arc<Mutex<BuildStack>>,
 }
 
 impl ScriptEngine {
@@ -24,20 +27,32 @@ impl ScriptEngine {
         #[allow(clippy::arc_with_non_send_sync)]
         let registry = Arc::new(Mutex::new(TaskRegistry::new()));
         let exec_state = Arc::new(Mutex::new(ExecutionState::default()));
+        #[allow(clippy::arc_with_non_send_sync)]
+        let build_stack = Arc::new(Mutex::new(BuildStack::new()));
 
         engine.set_max_expr_depths(256, 128);
 
-        bindings::register_all(&mut engine, registry.clone(), exec_state.clone());
+        bindings::register_all(
+            &mut engine,
+            registry.clone(),
+            exec_state.clone(),
+            build_stack.clone(),
+        );
 
         Self {
             engine,
             registry,
             ast: None,
             exec_state,
+            build_stack,
         }
     }
 
     pub fn run_script(&mut self, path: &str) -> Result<(), Box<EvalAltResult>> {
+        {
+            let mut stack = self.build_stack.lock().unwrap();
+            stack.reset();
+        }
         let script_path = resolve_script_path(path).map_err(|err| -> Box<EvalAltResult> {
             Box::new(EvalAltResult::ErrorRuntime(
                 format!("Unable to locate script file '{}': {}", path, err).into(),
@@ -84,10 +99,7 @@ impl ScriptEngine {
                         args.len(),
                         raw_args
                     );
-                    let task_actions = reg
-                        .tasks
-                        .get(&full_path)
-                        .and_then(|task| task.actions.clone());
+                    let task_actions = reg.task(&full_path).and_then(|task| task.actions.clone());
                     (args, task_actions)
                 };
                 (full_path, call_args, actions)
@@ -126,6 +138,12 @@ impl ScriptEngine {
             printer::error("AST is not loaded. Run the script first.");
         }
         Ok(())
+    }
+}
+
+impl Default for ScriptEngine {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

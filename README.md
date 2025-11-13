@@ -51,9 +51,9 @@ rhask run <task>
 
 ### Passing Arguments
 
-Declare parameters in Rhai, e.g. `args(#{ profile: "debug", target: () })`. Positional arguments follow the declaration order (`profile` → `target`). From the CLI you can supply values using:
+Declare parameters in Rhai, e.g. `args(#{ target: (), profile: "debug" })`. Positional arguments follow the lexicographic order of the keys (this example maps to `profile` → `target`). `()` means “no default = required”. Favor named forms when order matters, and supply values from the CLI using:
 
-- Positional: `rhask run build release x86_64-unknown-linux-gnu`
+- Positional (key order): `rhask run build release x86_64-unknown-linux-gnu`
 - `key=value`: `rhask run build profile=release`
 - `--key=value`: `rhask run build --target=x86_64-apple-darwin`
 - `--key value`: `rhask run build --target wasm32-unknown-unknown`
@@ -69,8 +69,8 @@ Unknown keys raise an error. Parameters marked as required (`()`) must be provid
 task("build", || {
     description("Build the project");
     args(#{
-        profile: "debug",
-        target: "x86_64-unknown-linux-gnu"
+        target: (),
+        profile: "debug"
     });
     actions(|profile, target| {
         print("build => profile:" + profile + ", target:" + target);

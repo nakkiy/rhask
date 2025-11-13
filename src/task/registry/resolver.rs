@@ -1,5 +1,6 @@
-use super::model::{leaf_name, TaskRegistry};
+use super::task_registry::TaskRegistry;
 use crate::logger::trace;
+use crate::task::model::leaf_name;
 
 pub enum TaskLookup {
     Found { full_path: String },
@@ -15,7 +16,7 @@ impl TaskRegistry {
             return TaskLookup::NotFound;
         }
 
-        if self.tasks.contains_key(trimmed) {
+        if self.contains_task(trimmed) {
             trace!("resolve_task: '{}' matched exact task", trimmed);
             return TaskLookup::Found {
                 full_path: trimmed.to_string(),
@@ -23,7 +24,7 @@ impl TaskRegistry {
         }
 
         if trimmed.contains('.') {
-            if self.tasks.contains_key(trimmed) {
+            if self.contains_task(trimmed) {
                 trace!("resolve_task: '{}' matched dotted task", trimmed);
                 return TaskLookup::Found {
                     full_path: trimmed.to_string(),
@@ -35,8 +36,7 @@ impl TaskRegistry {
         }
 
         let matches: Vec<String> = self
-            .tasks
-            .iter()
+            .tasks_iter()
             .filter(|(full_path, _)| leaf_name(full_path) == trimmed)
             .map(|(full_path, _)| full_path.clone())
             .collect();
@@ -69,13 +69,12 @@ impl TaskRegistry {
 
 #[cfg(test)]
 mod tests {
-    use super::super::model::Task;
     use super::*;
 
     fn registry_with_tasks(names: &[&str]) -> TaskRegistry {
         let mut registry = TaskRegistry::new();
         for name in names {
-            registry.tasks.insert((*name).to_string(), Task::default());
+            registry.insert_task_for_test(name);
         }
         registry
     }

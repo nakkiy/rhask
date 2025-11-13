@@ -3,7 +3,11 @@ use rhai::{Dynamic, EvalAltResult, ImmutableString};
 
 use crate::logger::{debug, trace};
 
-use super::model::{context_error, TaskRegistry};
+use super::model::context_error;
+use super::registry::TaskRegistry;
+
+#[cfg(test)]
+use super::stack::BuildStack;
 
 #[allow(clippy::type_complexity)]
 pub fn parse_cli_arguments(
@@ -89,8 +93,7 @@ fn prepare_arguments_internal(
     mut named: IndexMap<String, String>,
 ) -> Result<Vec<Dynamic>, Box<EvalAltResult>> {
     let task = registry
-        .tasks
-        .get(task_name)
+        .task(task_name)
         .ok_or_else(|| context_error(format!("Internal error: task '{}' not found", task_name)))?;
 
     if task.params.is_empty() {
@@ -152,12 +155,13 @@ mod tests {
 
     fn registry_with_args() -> TaskRegistry {
         let mut registry = TaskRegistry::new();
-        registry.begin_task("build").unwrap();
+        let mut stack = BuildStack::new();
+        stack.begin_task(&registry, "build").unwrap();
         let mut params = Map::new();
         params.insert("profile".into(), Dynamic::from("debug"));
         params.insert("target".into(), Dynamic::from("x86"));
-        registry.set_args(params).unwrap();
-        registry.end_task().unwrap();
+        stack.set_args(params).unwrap();
+        stack.end_task(&mut registry).unwrap();
         registry
     }
 
