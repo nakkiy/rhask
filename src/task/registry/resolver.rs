@@ -1,5 +1,6 @@
-use super::model::{leaf_name, TaskRegistry};
+use super::task_registry::TaskRegistry;
 use crate::logger::trace;
+use crate::task::model::leaf_name;
 
 pub enum TaskLookup {
     Found { full_path: String },

@@ -3,10 +3,11 @@ use rhai::{Dynamic, EvalAltResult, ImmutableString};
 
 use crate::logger::{debug, trace};
 
-use super::model::{context_error, TaskRegistry};
+use super::model::context_error;
+use super::registry::TaskRegistry;
 
 #[cfg(test)]
-use super::model::BuildStack;
+use super::stack::BuildStack;
 
 #[allow(clippy::type_complexity)]
 pub fn parse_cli_arguments(

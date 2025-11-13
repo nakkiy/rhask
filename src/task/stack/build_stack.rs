@@ -1,71 +1,14 @@
 use rhai::{EvalAltResult, FnPtr, ImmutableString, Map};
 
-use super::registry::TaskRegistry;
-use super::types::{context_error, Group, ParameterSpec, RegistryEntry, Task};
+use crate::task::builder::{GroupBuilder, TaskBuilder};
+use crate::task::model::{context_error, ParameterSpec, RegistryEntry};
+use crate::task::registry::TaskRegistry;
 
 #[derive(Clone, Debug)]
 pub(crate) enum ContextFrame {
     Root,
     Group(GroupBuilder),
     Task(TaskBuilder),
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct TaskBuilder {
-    full_path: String,
-    task: Task,
-}
-
-impl TaskBuilder {
-    fn new(full_path: String) -> Self {
-        Self {
-            full_path,
-            task: Task::default(),
-        }
-    }
-
-    fn set_description(&mut self, desc: &str) {
-        self.task.description = Some(desc.to_string());
-    }
-
-    fn set_actions(&mut self, func: FnPtr) {
-        self.task.actions = Some(func);
-    }
-
-    fn set_params(&mut self, params: Vec<ParameterSpec>) {
-        self.task.params = params;
-    }
-
-    fn build(self) -> (String, Task) {
-        (self.full_path, self.task)
-    }
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct GroupBuilder {
-    full_path: String,
-    group: Group,
-}
-
-impl GroupBuilder {
-    fn new(full_path: String) -> Self {
-        Self {
-            full_path,
-            group: Group::default(),
-        }
-    }
-
-    fn set_description(&mut self, desc: &str) {
-        self.group.description = Some(desc.to_string());
-    }
-
-    fn add_entry(&mut self, entry: RegistryEntry) {
-        self.group.entries.push(entry);
-    }
-
-    fn build(self) -> (String, Group) {
-        (self.full_path, self.group)
-    }
 }
 
 #[derive(Clone)]
@@ -117,7 +60,7 @@ impl BuildStack {
         match self.context_stack.pop() {
             Some(ContextFrame::Task(builder)) => {
                 let (full_path, task) = builder.build();
-                registry.tasks.insert(full_path.clone(), task);
+                registry.insert_task_entry(full_path.clone(), task);
                 self.attach_entry_to_parent(registry, RegistryEntry::Task(full_path))
             }
             Some(ContextFrame::Group(_)) => Err(context_error(
@@ -156,7 +99,7 @@ impl BuildStack {
         match self.context_stack.pop() {
             Some(ContextFrame::Group(builder)) => {
                 let (full_path, group) = builder.build();
-                registry.groups.insert(full_path.clone(), group);
+                registry.insert_group_entry(full_path.clone(), group);
                 self.attach_entry_to_parent(registry, RegistryEntry::Group(full_path))
             }
             Some(ContextFrame::Task(_)) => Err(context_error(
@@ -252,7 +195,7 @@ impl BuildStack {
     ) -> Result<(), Box<EvalAltResult>> {
         match self.context_stack.last_mut() {
             Some(ContextFrame::Root) => {
-                registry.root_entries.push(entry);
+                registry.push_root_entry(entry);
                 Ok(())
             }
             Some(ContextFrame::Group(builder)) => {
@@ -271,7 +214,7 @@ impl BuildStack {
         registry: &TaskRegistry,
         full_path: &str,
     ) -> Result<(), Box<EvalAltResult>> {
-        if registry.tasks.contains_key(full_path)
+        if registry.contains_task(full_path)
             || self
                 .context_stack
                 .iter()
@@ -281,7 +224,7 @@ impl BuildStack {
                 "Task '{}' is already defined.",
                 full_path
             )))
-        } else if registry.groups.contains_key(full_path)
+        } else if registry.contains_group(full_path)
             || self
                 .context_stack
                 .iter()
@@ -301,7 +244,7 @@ impl BuildStack {
         registry: &TaskRegistry,
         full_path: &str,
     ) -> Result<(), Box<EvalAltResult>> {
-        if registry.groups.contains_key(full_path)
+        if registry.contains_group(full_path)
             || self
                 .context_stack
                 .iter()
@@ -311,7 +254,7 @@ impl BuildStack {
                 "Group '{}' is already defined.",
                 full_path
             )))
-        } else if registry.tasks.contains_key(full_path)
+        } else if registry.contains_task(full_path)
             || self
                 .context_stack
                 .iter()

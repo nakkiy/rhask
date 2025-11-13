@@ -1,5 +1,4 @@
-use super::{BuildStack, TaskRegistry};
-use crate::task::TaskLookup;
+use crate::task::{BuildStack, TaskLookup, TaskRegistry};
 use rhai::{Dynamic, FnPtr, Map};
 
 fn dummy_fn_ptr() -> FnPtr {
