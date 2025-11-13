@@ -12,8 +12,8 @@ pub(crate) enum ContextFrame {
 
 #[derive(Clone, Debug)]
 pub(crate) struct TaskBuilder {
-    pub(super) full_path: String,
-    pub(super) task: Task,
+    full_path: String,
+    task: Task,
 }
 
 impl TaskBuilder {
@@ -24,15 +24,27 @@ impl TaskBuilder {
         }
     }
 
-    fn task_mut(&mut self) -> &mut Task {
-        &mut self.task
+    fn set_description(&mut self, desc: &str) {
+        self.task.description = Some(desc.to_string());
+    }
+
+    fn set_actions(&mut self, func: FnPtr) {
+        self.task.actions = Some(func);
+    }
+
+    fn set_params(&mut self, params: Vec<ParameterSpec>) {
+        self.task.params = params;
+    }
+
+    fn build(self) -> (String, Task) {
+        (self.full_path, self.task)
     }
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct GroupBuilder {
-    pub(super) full_path: String,
-    pub(super) group: Group,
+    full_path: String,
+    group: Group,
 }
 
 impl GroupBuilder {
@@ -41,6 +53,18 @@ impl GroupBuilder {
             full_path,
             group: Group::default(),
         }
+    }
+
+    fn set_description(&mut self, desc: &str) {
+        self.group.description = Some(desc.to_string());
+    }
+
+    fn add_entry(&mut self, entry: RegistryEntry) {
+        self.group.entries.push(entry);
+    }
+
+    fn build(self) -> (String, Group) {
+        (self.full_path, self.group)
     }
 }
 
@@ -91,7 +115,11 @@ impl BuildStack {
         registry: &mut TaskRegistry,
     ) -> Result<(), Box<EvalAltResult>> {
         match self.context_stack.pop() {
-            Some(ContextFrame::Task(builder)) => self.finalize_task(registry, builder),
+            Some(ContextFrame::Task(builder)) => {
+                let (full_path, task) = builder.build();
+                registry.tasks.insert(full_path.clone(), task);
+                self.attach_entry_to_parent(registry, RegistryEntry::Task(full_path))
+            }
             Some(ContextFrame::Group(_)) => Err(context_error(
                 "context mismatch: end_task() called while inside group().",
             )),
@@ -126,7 +154,11 @@ impl BuildStack {
         registry: &mut TaskRegistry,
     ) -> Result<(), Box<EvalAltResult>> {
         match self.context_stack.pop() {
-            Some(ContextFrame::Group(builder)) => self.finalize_group(registry, builder),
+            Some(ContextFrame::Group(builder)) => {
+                let (full_path, group) = builder.build();
+                registry.groups.insert(full_path.clone(), group);
+                self.attach_entry_to_parent(registry, RegistryEntry::Group(full_path))
+            }
             Some(ContextFrame::Task(_)) => Err(context_error(
                 "context mismatch: task() scope was not closed before ending group().",
             )),
@@ -138,14 +170,21 @@ impl BuildStack {
     }
 
     pub fn set_actions(&mut self, func: FnPtr) -> Result<(), Box<EvalAltResult>> {
-        let task = self.current_task_mut()?;
-        task.actions = Some(func);
-        Ok(())
+        match self.context_stack.last_mut() {
+            Some(ContextFrame::Task(builder)) => {
+                builder.set_actions(func);
+                Ok(())
+            }
+            Some(ContextFrame::Group(_)) | Some(ContextFrame::Root) => Err(context_error(
+                "actions() can only be used inside task(). Call task() first.",
+            )),
+            None => Err(context_error("context mismatch: context stack is empty.")),
+        }
     }
 
     pub fn set_args(&mut self, params: Map) -> Result<(), Box<EvalAltResult>> {
-        let task = match self.context_stack.last_mut() {
-            Some(ContextFrame::Task(builder)) => builder.task_mut(),
+        let builder = match self.context_stack.last_mut() {
+            Some(ContextFrame::Task(builder)) => builder,
             Some(ContextFrame::Group(_)) | Some(ContextFrame::Root) => {
                 return Err(context_error("args() can only be used inside task()."));
             }
@@ -170,35 +209,26 @@ impl BuildStack {
 
         entries.sort_by(|a, b| a.0.cmp(&b.0));
 
-        task.params = entries
+        let specs = entries
             .into_iter()
             .map(|(name, default)| ParameterSpec { name, default })
             .collect();
+        builder.set_params(specs);
         Ok(())
     }
 
     pub fn set_description(&mut self, desc: &str) -> Result<(), Box<EvalAltResult>> {
         match self.context_stack.last_mut() {
             Some(ContextFrame::Task(builder)) => {
-                builder.task.description = Some(desc.to_string());
+                builder.set_description(desc);
                 Ok(())
             }
             Some(ContextFrame::Group(builder)) => {
-                builder.group.description = Some(desc.to_string());
+                builder.set_description(desc);
                 Ok(())
             }
             Some(ContextFrame::Root) => Err(context_error(
                 "description() can only be used inside task() or group().",
-            )),
-            None => Err(context_error("context mismatch: context stack is empty.")),
-        }
-    }
-
-    pub(crate) fn current_task_mut(&mut self) -> Result<&mut Task, Box<EvalAltResult>> {
-        match self.context_stack.last_mut() {
-            Some(ContextFrame::Task(builder)) => Ok(builder.task_mut()),
-            Some(ContextFrame::Group(_)) | Some(ContextFrame::Root) => Err(context_error(
-                "actions() can only be used inside task(). Call task() first.",
             )),
             None => Err(context_error("context mismatch: context stack is empty.")),
         }
@@ -226,7 +256,7 @@ impl BuildStack {
                 Ok(())
             }
             Some(ContextFrame::Group(builder)) => {
-                builder.group.entries.push(entry);
+                builder.add_entry(entry);
                 Ok(())
             }
             Some(ContextFrame::Task(_)) => {
@@ -294,25 +324,5 @@ impl BuildStack {
         } else {
             Ok(())
         }
-    }
-
-    fn finalize_task(
-        &mut self,
-        registry: &mut TaskRegistry,
-        builder: TaskBuilder,
-    ) -> Result<(), Box<EvalAltResult>> {
-        let TaskBuilder { full_path, task } = builder;
-        registry.tasks.insert(full_path.clone(), task);
-        self.attach_entry_to_parent(registry, RegistryEntry::Task(full_path))
-    }
-
-    fn finalize_group(
-        &mut self,
-        registry: &mut TaskRegistry,
-        builder: GroupBuilder,
-    ) -> Result<(), Box<EvalAltResult>> {
-        let GroupBuilder { full_path, group } = builder;
-        registry.groups.insert(full_path.clone(), group);
-        self.attach_entry_to_parent(registry, RegistryEntry::Group(full_path))
     }
 }

@@ -16,12 +16,6 @@ fn task_registration_and_context() {
     stack.set_description("desc").unwrap();
     stack.set_actions(dummy_fn_ptr()).unwrap();
 
-    {
-        let task = stack.current_task_mut().unwrap();
-        assert_eq!(task.description.as_deref(), Some("desc"));
-        assert!(task.actions.is_some());
-    }
-
     stack.end_task(&mut registry).unwrap();
 
     match registry.resolve_task("build") {
