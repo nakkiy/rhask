@@ -47,7 +47,7 @@ rhask run <task>
 | `rhask list [group]` | Display tasks/groups as a tree. Passing `group` limits the output to that subtree; use fully qualified names like `deploy.staging` for nested groups. |
 | `rhask list --flat` / `rhask list -F` | Emit each task as `full.path` followed by an aligned description. Works with `group` filters and is ideal for piping into tools such as `fzf`. |
 | `rhask run <task> [args…]` | Execute a task. Supports both short names and fully qualified names; ambiguous leaves print candidate paths and abort. You can omit `run` and type `rhask <task>` as shorthand. |
-| `rhask -f <file> …` | Explicitly load a Rhai script (the flag can appear anywhere in the command). |
+| `rhask -f <file> …` | Explicitly load a Rhai script. Place `-f/--file` before the subcommand or task name (e.g. `rhask -f ./demo.rhai list`, `rhask -f ./demo.rhai run build`, `rhask -f ./demo.rhai build`). |
 
 ### Passing Arguments
 
