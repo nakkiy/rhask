@@ -92,12 +92,10 @@ group("release_flow", || {
 | `task(name, \|\| { ... })` | Declare a task and call `description` / `actions` / `args` inside it. |
 | `group(name, \|\| { ... })` | Declare a group that can contain tasks or nested sub-groups. |
 | `description(text)` | Attach a description to the current task or group. |
-| `actions(\|\| { ... })` | Register the execution closure. Only inside this closure may you call `trigger` / `exec`. |
-| `args(#{ key1: default1, key2: (), ... })` | Declare CLI parameters. `()` signals “no default = required”. |
+| `actions(\|\| { ... })` | Register the execution closure for a task (only valid inside `task()`). `trigger` / `exec` may only be called inside this closure. |
+| `args(#{ key1: default1, key2: (), ... })` | Declare CLI parameters for the surrounding task (only valid inside `task()`). `()` signals “no default = required”. |
 | `trigger(name, positional?, named?)` | Reuse another task. Provide arrays/maps for positional/named arguments. |
 | `exec(command)` | Run an external command via the shell. Returns `()` on success. |
-
-> `trigger` and `exec` are restricted to `actions()`; misusing them aborts script loading with an error.
 
 ---
 
