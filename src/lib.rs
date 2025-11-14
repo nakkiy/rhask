@@ -33,21 +33,33 @@ pub fn run_with_cli(cli: Cli) -> Result<(), Box<EvalAltResult>> {
     Ok(())
 }
 
-fn dispatcher(cmd: cli::Commands, engine: engine::ScriptEngine) -> Result<(), Box<EvalAltResult>> {
+fn dispatcher(
+    cmd: Option<cli::Commands>,
+    engine: engine::ScriptEngine,
+) -> Result<(), Box<EvalAltResult>> {
     debug!("dispatching command: {:?}", cmd);
     match cmd {
-        cli::Commands::List(opts) => {
+        Some(cli::Commands::List(opts)) => {
             info!("Listing tasks: group={:?}, flat={}", opts.group, opts.flat);
             engine.list_tasks(opts.group.as_deref(), opts.flat);
             Ok(())
         }
-        cli::Commands::Run(opts) => run_with_logging(engine, &opts.task, &opts.args),
-        cli::Commands::Direct(raw) => {
+        Some(cli::Commands::Run(opts)) => run_with_logging(engine, &opts.task, &opts.args),
+        Some(cli::Commands::Direct(raw)) => {
             let (task, args) = raw.split_first().ok_or_else(|| {
                 warn!("Direct command invoked without a task name");
                 missing_task_name_error()
             })?;
             run_with_logging(engine, task, args)
+        }
+        None => {
+            if let Some(task) = engine.default_task() {
+                run_with_logging(engine, &task, &[])
+            } else {
+                info!("Listing tasks: group=None, flat=false");
+                engine.list_tasks(None, false);
+                Ok(())
+            }
         }
     }
 }
@@ -95,7 +107,7 @@ mod tests {
     #[test]
     fn dispatcher_errors_for_direct_without_task_name() {
         let engine = engine::ScriptEngine::new();
-        let result = dispatcher(cli::Commands::Direct(vec![]), engine);
+        let result = dispatcher(Some(cli::Commands::Direct(vec![])), engine);
         assert!(result.is_err());
         let err = result.err().unwrap();
         assert!(format!("{}", err).contains("Task name is required"));
@@ -108,7 +120,14 @@ mod tests {
             group: Some("nonexistent".to_string()),
             flat: true,
         };
-        let result = dispatcher(cli::Commands::List(opts), engine);
+        let result = dispatcher(Some(cli::Commands::List(opts)), engine);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn dispatcher_lists_when_no_command_and_no_default() {
+        let engine = engine::ScriptEngine::new();
+        let result = dispatcher(None, engine);
         assert!(result.is_ok());
     }
 }

@@ -7,6 +7,8 @@ fn log_build(profile, target) {
     log_task("build", detail);
 }
 
+default_task("clean");
+
 task("clean", || {
     description("Remove build artifacts");
     actions(|| {

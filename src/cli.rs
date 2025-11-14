@@ -13,7 +13,7 @@ pub struct Cli {
     pub file: Option<String>,
 
     #[command(subcommand)]
-    pub cmd: Commands,
+    pub cmd: Option<Commands>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -77,7 +77,7 @@ mod tests {
             "--flat",
         ]);
         assert_eq!(cli.file.as_deref(), Some("custom.rhai"));
-        match cli.cmd {
+        match cli.cmd.expect("list command") {
             Commands::List(opts) => {
                 assert_eq!(opts.group.as_deref(), Some("ops.release"));
                 assert!(opts.flat);
@@ -100,7 +100,7 @@ mod tests {
             "arm64",
         ]);
         assert_eq!(cli.file.as_deref(), Some("demo.rhai"));
-        match cli.cmd {
+        match cli.cmd.expect("run command") {
             Commands::Run(opts) => {
                 assert_eq!(opts.task, "build");
                 assert_eq!(
@@ -121,7 +121,7 @@ mod tests {
     fn parse_direct_subcommand_with_arguments() {
         let cli = parse_from(["rhask", "-f", "tasks.rhai", "deploy", "--env=prod", "extra"]);
         assert_eq!(cli.file.as_deref(), Some("tasks.rhai"));
-        match cli.cmd {
+        match cli.cmd.expect("direct command") {
             Commands::Direct(values) => {
                 assert_eq!(
                     values,
