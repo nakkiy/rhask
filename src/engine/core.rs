@@ -6,7 +6,6 @@ use std::sync::{Arc, Mutex};
 
 use super::bindings;
 use crate::logger::*;
-use crate::printer;
 use crate::task::{
     prepare_arguments_from_cli, BuildStack, ListRenderMode, TaskLookup, TaskRegistry,
 };
@@ -106,17 +105,16 @@ impl ScriptEngine {
             }
             TaskLookup::NotFound => {
                 warn!("run_task: '{}' not found", name);
-                printer::warn(format!("Task '{}' does not exist.", name));
-                return Ok(());
+                return Err(user_error(format!("Task '{}' does not exist.", name)));
             }
             TaskLookup::Ambiguous(candidates) => {
                 warn!("run_task: '{}' ambiguous matches {:?}", name, candidates);
-                printer::warn(format!("Task '{}' matches multiple candidates:", name));
+                let mut message = format!("Task '{}' matches multiple candidates:\n", name);
                 for candidate in candidates {
-                    printer::warn(format!("  - {}", candidate));
+                    message.push_str(&format!("  - {}\n", candidate));
                 }
-                printer::warn("Please use the fully-qualified name (e.g. group.task).");
-                return Ok(());
+                message.push_str("Please use the fully-qualified name (e.g. group.task).");
+                return Err(user_error(message));
             }
         };
 
@@ -131,11 +129,14 @@ impl ScriptEngine {
                 self.invoke_action(ast, func, call_args)?;
             } else {
                 warn!("run_task: '{}' has no actions registered", full_path);
-                printer::warn(format!("Task '{}' has no actions() registered.", full_path));
+                return Err(user_error(format!(
+                    "Task '{}' has no actions() registered.",
+                    full_path
+                )));
             }
         } else {
             error!("run_task: AST not loaded before executing '{}'", full_path);
-            printer::error("AST is not loaded. Run the script first.");
+            return Err(user_error("AST is not loaded. Run the script first."));
         }
         Ok(())
     }
@@ -219,6 +220,13 @@ impl ScriptEngine {
         let _ = func.call::<Dynamic>(&self.engine, ast, args)?;
         Ok(())
     }
+}
+
+pub(crate) fn user_error(message: impl Into<String>) -> Box<EvalAltResult> {
+    Box::new(EvalAltResult::ErrorRuntime(
+        message.into().into(),
+        Position::NONE,
+    ))
 }
 
 fn resolve_script_path(path: &str) -> io::Result<PathBuf> {
