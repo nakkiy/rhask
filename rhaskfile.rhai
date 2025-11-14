@@ -1,3 +1,5 @@
+default_task("fzf");
+
 task("fzf", || {
     description("choose and run a task via fzf (optionally scoped to a group)");
     args(#{
@@ -50,15 +52,21 @@ group("build_suite", || {
         });
     });
 
+    task("clippy", || {
+        description("Run clippy");
+        actions( || {
+            exec("cargo clippy");
+            print("linting completed");
+        });
+    });
+
     task("dev", || {
         description("Execute common development tasks");
         actions( || {
             trigger("fmt");
-            print("fmt finished");
             trigger("test");
-            print("test finished");
+            trigger("clippy");
             trigger("build");
-            print("build finished");
             print("Development task collection finished");
         });
     });

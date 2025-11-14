@@ -140,6 +140,13 @@ impl ScriptEngine {
         }
         Ok(())
     }
+
+    pub fn default_task(&self) -> Option<String> {
+        self.registry
+            .lock()
+            .ok()
+            .and_then(|registry| registry.default_task())
+    }
 }
 
 impl Default for ScriptEngine {

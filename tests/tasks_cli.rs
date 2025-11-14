@@ -104,6 +104,14 @@ fn run_unique_task_by_leaf_name() {
 }
 
 #[test]
+fn run_without_command_executes_default_task() {
+    rhask_with_fixture()
+        .assert()
+        .success()
+        .stdout(contains(CLEAN_LOG));
+}
+
+#[test]
 fn shorthand_run_executes_task() {
     rhask_with_fixture()
         .args(["clean"])
@@ -317,6 +325,30 @@ fn run_with_explicit_file_option() {
         .assert()
         .success()
         .stdout(contains("[greet] hi from custom file"));
+}
+
+#[test]
+fn run_without_command_lists_when_default_missing() {
+    let temp = tempdir().expect("create temp dir");
+    let script_path = temp.path().join("nodefault.rhai");
+    let mut file = fs::File::create(&script_path).expect("create script file");
+    writeln!(
+        file,
+        r#"
+            task("hello", || {{
+                actions(|| {{
+                    print("[hello] hi");
+                }});
+            }});
+        "#
+    )
+    .expect("write script");
+
+    rhask()
+        .args(["--file", script_path.to_str().expect("utf8 path")])
+        .assert()
+        .success()
+        .stdout(contains("- hello"));
 }
 
 #[test]

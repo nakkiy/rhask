@@ -46,6 +46,16 @@ pub mod rhask_api {
         with_build_stack(&ctx, |stack| stack.set_description(desc))
     }
 
+    #[rhai_fn(global, name = "default_task", return_raw)]
+    pub fn register_default_task(
+        ctx: NativeCallContext,
+        name: &str,
+    ) -> Result<(), Box<EvalAltResult>> {
+        let runtime = runtime_from_ctx(&ctx)?;
+        let mut registry = runtime.registry.lock().unwrap();
+        registry.set_default_task(name)
+    }
+
     #[rhai_fn(global, name = "discription", return_raw)]
     pub fn set_discription(ctx: NativeCallContext, desc: &str) -> Result<(), Box<EvalAltResult>> {
         set_description(ctx, desc)

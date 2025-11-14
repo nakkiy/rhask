@@ -10,10 +10,10 @@ fn fixture_rhaskfile() -> String {
 fn run_with_cli_lists_tasks_successfully() {
     let cli = Cli {
         file: Some(fixture_rhaskfile()),
-        cmd: Commands::List(ListOptions {
+        cmd: Some(Commands::List(ListOptions {
             group: None,
             flat: false,
-        }),
+        })),
     };
 
     run_with_cli(cli).expect("list command should succeed");
@@ -23,7 +23,7 @@ fn run_with_cli_lists_tasks_successfully() {
 fn run_with_cli_propagates_errors() {
     let cli = Cli {
         file: Some(fixture_rhaskfile()),
-        cmd: Commands::Direct(Vec::new()),
+        cmd: Some(Commands::Direct(Vec::new())),
     };
 
     assert!(run_with_cli(cli).is_err());
