@@ -109,14 +109,16 @@ group("release_flow", || {
 
 ## Coverage
 
-Rhask ships with a helper script for measuring code coverage.
+Rhask ships with a helper script for measuring code coverage. It installs `cargo-llvm-cov` / `llvm-tools-preview` on demand (requires `rustup`).
 
-1. Install the prerequisites once:
-   - `cargo install cargo-llvm-cov --locked`
-   - `rustup component add llvm-tools-preview`
-2. Run `scripts/coverage.sh` (additional flags are passed through to `cargo llvm-cov`). The HTML report is written to `target/coverage/html/index.html`.
+- `./scripts/coverage.sh --mode all` (default)  
+  Runs unit + integration tests and writes `target/coverage/html/index.html`.
+- `./scripts/coverage.sh --mode unit`  
+  Runs unit tests only and writes `target/coverage-unit/html/index.html`.
+- `./scripts/coverage.sh --mode integration`  
+  Runs `tests/*.rs` only and writes `target/coverage-integration/html/index.html`.
 
-The script fails fast when `cargo-llvm-cov` is missing so it is safe to call from CI workflows as well.
+Pass `-- <extra flags>` if you need to forward arguments directly to `cargo llvm-cov` (for example `-- --lcov --output-path lcov.info`). This script is safe to call from CI workflows as well.
 
 ---
 

@@ -75,3 +75,40 @@ fn missing_task_name_error() -> Box<EvalAltResult> {
         Position::NONE,
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_task_name_returns_runtime_error() {
+        let err = missing_task_name_error();
+        match err.as_ref() {
+            EvalAltResult::ErrorRuntime(msg, _) => {
+                let text = msg.to_string();
+                assert!(text.contains("Task name is required"));
+            }
+            other => panic!("expected runtime error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn dispatcher_errors_for_direct_without_task_name() {
+        let engine = engine::ScriptEngine::new();
+        let result = dispatcher(cli::Commands::Direct(vec![]), engine);
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert!(format!("{}", err).contains("Task name is required"));
+    }
+
+    #[test]
+    fn dispatcher_handles_list_command_without_panic() {
+        let engine = engine::ScriptEngine::new();
+        let opts = cli::ListOptions {
+            group: Some("nonexistent".to_string()),
+            flat: true,
+        };
+        let result = dispatcher(cli::Commands::List(opts), engine);
+        assert!(result.is_ok());
+    }
+}

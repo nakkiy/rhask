@@ -261,3 +261,346 @@ fn resolve_script_path(path: &str) -> io::Result<PathBuf> {
         ),
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    fn write_script(contents: &str) -> NamedTempFile {
+        let mut file = NamedTempFile::new().expect("create temp Rhai script");
+        write!(file, "{contents}").expect("write script");
+        file
+    }
+
+    #[test]
+    fn run_task_errors_when_task_missing() {
+        let script = write_script(
+            r#"
+            task("hello", || {
+                actions(|| { print("hi"); });
+            });
+        "#,
+        );
+        let mut engine = ScriptEngine::new();
+        engine
+            .run_script(script.path().to_str().unwrap())
+            .expect("load script");
+        let err = engine.run_task("unknown_task", &[]).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("Task 'unknown_task' does not exist."),
+            "unexpected error message: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn run_task_errors_when_name_ambiguous() {
+        let script = write_script(
+            r#"
+            group("build", || {
+                task("deploy", || {
+                    actions(|| { print("build deploy"); });
+                });
+            });
+            group("ops", || {
+                task("deploy", || {
+                    actions(|| { print("ops deploy"); });
+                });
+            });
+        "#,
+        );
+        let mut engine = ScriptEngine::new();
+        engine
+            .run_script(script.path().to_str().unwrap())
+            .expect("load script");
+        let err = engine.run_task("deploy", &[]).unwrap_err();
+        assert!(
+            err.to_string().contains("matches multiple candidates"),
+            "unexpected error message: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn run_task_errors_when_actions_missing() {
+        let script = write_script(
+            r#"
+            task("no_actions", || {
+                description("intentionally missing actions()");
+            });
+        "#,
+        );
+        let mut engine = ScriptEngine::new();
+        engine
+            .run_script(script.path().to_str().unwrap())
+            .expect("load script");
+        let err = engine.run_task("no_actions", &[]).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("Task 'no_actions' has no actions() registered."),
+            "unexpected error message: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn run_task_errors_when_ast_missing() {
+        let script = write_script(
+            r#"
+            task("hello", || {
+                actions(|| { print("hi"); });
+            });
+        "#,
+        );
+        let mut engine = ScriptEngine::new();
+        engine
+            .run_script(script.path().to_str().unwrap())
+            .expect("load script");
+        engine.ast = None;
+        let err = engine.run_task("hello", &[]).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("AST is not loaded. Run the script first."),
+            "unexpected error message: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn exec_command_succeeds_inside_actions() {
+        let script = write_script(
+            r#"
+            task("exec_ok", || {
+                actions(|| {
+                    exec("true");
+                });
+            });
+        "#,
+        );
+        let mut engine = ScriptEngine::new();
+        engine
+            .run_script(script.path().to_str().unwrap())
+            .expect("load script");
+        engine
+            .run_task("exec_ok", &[])
+            .expect("exec should succeed");
+    }
+
+    #[test]
+    fn exec_command_reports_failure_status() {
+        let script = write_script(
+            r#"
+            task("exec_fail", || {
+                actions(|| {
+                    exec("exit 7");
+                });
+            });
+        "#,
+        );
+        let mut engine = ScriptEngine::new();
+        engine
+            .run_script(script.path().to_str().unwrap())
+            .expect("load script");
+        let err = engine.run_task("exec_fail", &[]).unwrap_err();
+        assert!(
+            err.to_string().contains("Command exited with failure"),
+            "unexpected error message: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn trigger_errors_when_target_is_missing() {
+        let script = write_script(
+            r#"
+            task("caller", || {
+                actions(|| {
+                    trigger("missing_task");
+                });
+            });
+        "#,
+        );
+        let mut engine = ScriptEngine::new();
+        engine
+            .run_script(script.path().to_str().unwrap())
+            .expect("load script");
+        let err = engine.run_task("caller", &[]).unwrap_err();
+        assert!(
+            err.to_string().contains("does not exist"),
+            "unexpected error message: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn trigger_errors_when_target_is_ambiguous() {
+        let script = write_script(
+            r#"
+            group("build", || {
+                task("deploy", || {
+                    actions(|| {
+                        print("build deploy");
+                    });
+                });
+            });
+            group("ops", || {
+                task("deploy", || {
+                    actions(|| {
+                        print("ops deploy");
+                    });
+                });
+            });
+            task("caller", || {
+                actions(|| {
+                    trigger("deploy");
+                });
+            });
+        "#,
+        );
+        let mut engine = ScriptEngine::new();
+        engine
+            .run_script(script.path().to_str().unwrap())
+            .expect("load script");
+        let err = engine.run_task("caller", &[]).unwrap_err();
+        assert!(
+            err.to_string().contains("matches multiple candidates"),
+            "unexpected error message: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn trigger_errors_when_target_has_no_actions() {
+        let script = write_script(
+            r#"
+            task("no_actions", || {
+                description("intentionally empty");
+            });
+            task("caller", || {
+                actions(|| {
+                    trigger("no_actions");
+                });
+            });
+        "#,
+        );
+        let mut engine = ScriptEngine::new();
+        engine
+            .run_script(script.path().to_str().unwrap())
+            .expect("load script");
+        let err = engine.run_task("caller", &[]).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("Task 'no_actions' has no actions() registered."),
+            "unexpected error message: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn trigger_passes_positional_arguments() {
+        let script = write_script(
+            r#"
+            task("target", || {
+                args(#{ profile: "debug", arch: "x86_64" });
+                actions(|arch, profile| {
+                    if profile != "release" || arch != "arm64" {
+                        throw "arguments not forwarded correctly";
+                    }
+                });
+            });
+            task("caller", || {
+                actions(|| {
+                    trigger("target", ["arm64", "release"]);
+                });
+            });
+        "#,
+        );
+        let mut engine = ScriptEngine::new();
+        engine
+            .run_script(script.path().to_str().unwrap())
+            .expect("load script");
+        engine
+            .run_task("caller", &[])
+            .expect("trigger with positional args");
+    }
+
+    #[test]
+    fn trigger_passes_named_arguments() {
+        let script = write_script(
+            r#"
+            task("target", || {
+                args(#{ profile: "debug", arch: "x86_64" });
+                actions(|arch, profile| {
+                    if profile != "release" || arch != "arm64" {
+                        throw "named arguments not forwarded correctly";
+                    }
+                });
+            });
+            task("caller", || {
+                actions(|| {
+                    trigger("target", #{ arch: "arm64", profile: "release" });
+                });
+            });
+        "#,
+        );
+        let mut engine = ScriptEngine::new();
+        engine
+            .run_script(script.path().to_str().unwrap())
+            .expect("load script");
+        engine
+            .run_task("caller", &[])
+            .expect("trigger with named args");
+    }
+
+    #[test]
+    fn trigger_passes_mixed_arguments() {
+        let script = write_script(
+            r#"
+            task("target", || {
+                args(#{ profile: "debug", arch: "x86_64" });
+                actions(|arch, profile| {
+                    if profile != "release" || arch != "arm64" {
+                        throw "mixed arguments not forwarded correctly";
+                    }
+                });
+            });
+            task("caller", || {
+                actions(|| {
+                    trigger("target", ["release"], #{ arch: "arm64" });
+                });
+            });
+        "#,
+        );
+        let mut engine = ScriptEngine::new();
+        engine
+            .run_script(script.path().to_str().unwrap())
+            .expect("load script");
+        engine
+            .run_task("caller", &[])
+            .expect("trigger with mixed args");
+    }
+
+    #[test]
+    fn discription_alias_sets_description() {
+        let script = write_script(
+            r#"
+            task("alias_desc", || {
+                discription("legacy alias");
+                actions(|| {});
+            });
+        "#,
+        );
+        let mut engine = ScriptEngine::new();
+        engine
+            .run_script(script.path().to_str().unwrap())
+            .expect("load script");
+        let registry = engine.registry.lock().unwrap();
+        let task = registry
+            .task("alias_desc")
+            .expect("task registered via discription");
+        assert_eq!(task.description.as_deref(), Some("legacy alias"));
+    }
+}

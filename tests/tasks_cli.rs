@@ -3,44 +3,50 @@ use predicates::{
     prelude::PredicateBooleanExt,
     str::{contains, is_match},
 };
-use std::fs;
-use std::io::Write;
-use std::path::PathBuf;
+use std::{fs, io::Write};
 use tempfile::tempdir;
+
+const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/rhaskfile.rhai");
+const INVALID_EXEC: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/rhaskfile_invalid_exec.rhai"
+);
+const INVALID_TRIGGER: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/rhaskfile_invalid_trigger.rhai"
+);
 
 fn rhask() -> Command {
     Command::cargo_bin("rhask").expect("rhask binary build failed")
 }
 
-fn fixture_rhaskfile() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/rhaskfile.rhai")
+fn rhask_with_fixture() -> Command {
+    let mut cmd = rhask();
+    cmd.args(["--file", FIXTURE]);
+    cmd
 }
 
-fn invalid_rhaskfile() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/rhaskfile_invalid_exec.rhai")
+fn build_log(profile: &str, target: &str) -> String {
+    format!("[build] profile={}, target={}", profile, target)
 }
 
-fn invalid_trigger_rhaskfile() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/rhaskfile_invalid_trigger.rhai")
-}
+const CLEAN_LOG: &str = "[clean] workspace cleaned";
+const TRIGGER_CLEAN_LOG: &str = "[trigger_clean] delegating to clean";
+const REQUIRE_VERSION_PREFIX: &str = "[requires_version] version=";
 
 #[test]
 fn list_prints_groups_and_tasks() {
-    let fixture = fixture_rhaskfile();
-    let fixture_str = fixture.to_str().expect("utf8 fixture path").to_string();
-    rhask()
-        .args(["--file", fixture_str.as_str(), "list"])
+    rhask_with_fixture()
+        .args(["list"])
         .assert()
         .success()
-        .stdout(contains("> build_suite").and(contains("- build_debug")));
+        .stdout(contains("> build_suite").and(contains("- clean")));
 }
 
 #[test]
 fn list_flat_prints_full_paths() {
-    let fixture = fixture_rhaskfile();
-    let fixture_str = fixture.to_str().expect("utf8 fixture path").to_string();
-    rhask()
-        .args(["--file", fixture_str.as_str(), "list", "--flat"])
+    rhask_with_fixture()
+        .args(["list", "--flat"])
         .assert()
         .success()
         .stdout(
@@ -52,10 +58,8 @@ fn list_flat_prints_full_paths() {
 
 #[test]
 fn list_specific_group_only() {
-    let fixture = fixture_rhaskfile();
-    let fixture_str = fixture.to_str().expect("utf8 fixture path").to_string();
-    rhask()
-        .args(["--file", fixture_str.as_str(), "list", "build_suite"])
+    rhask_with_fixture()
+        .args(["list", "build_suite"])
         .assert()
         .success()
         .stdout(contains("- build_debug").and(contains("> release_flow")))
@@ -64,15 +68,8 @@ fn list_specific_group_only() {
 
 #[test]
 fn list_child_group_by_leaf_name() {
-    let fixture = fixture_rhaskfile();
-    let fixture_str = fixture.to_str().expect("utf8 fixture path").to_string();
-    rhask()
-        .args([
-            "--file",
-            fixture_str.as_str(),
-            "list",
-            "build_suite.release_flow",
-        ])
+    rhask_with_fixture()
+        .args(["list", "build_suite.release_flow"])
         .assert()
         .success()
         .stdout(contains("package_artifacts").and(contains("deploy_staging")))
@@ -80,50 +77,54 @@ fn list_child_group_by_leaf_name() {
 }
 
 #[test]
-fn run_unique_task_by_leaf_name() {
-    let fixture = fixture_rhaskfile();
-    let fixture_str = fixture.to_str().expect("utf8 fixture path").to_string();
-    rhask()
-        .args(["--file", fixture_str.as_str(), "run", "clean"])
+fn list_unknown_group() {
+    rhask_with_fixture()
+        .args(["list", "unknown_group"])
         .assert()
         .success()
-        .stdout(contains("Cleanup completed"));
+        .stderr(contains("Group 'unknown_group' does not exist."));
+}
+
+#[test]
+fn list_ambiguous_group() {
+    rhask_with_fixture()
+        .args(["list", "release_flow"])
+        .assert()
+        .success()
+        .stderr(contains("matches multiple candidates"));
+}
+
+#[test]
+fn run_unique_task_by_leaf_name() {
+    rhask_with_fixture()
+        .args(["run", "clean"])
+        .assert()
+        .success()
+        .stdout(contains(CLEAN_LOG));
 }
 
 #[test]
 fn shorthand_run_executes_task() {
-    let fixture = fixture_rhaskfile();
-    let fixture_str = fixture.to_str().expect("utf8 fixture path").to_string();
-    rhask()
-        .args(["--file", fixture_str.as_str(), "clean"])
+    rhask_with_fixture()
+        .args(["clean"])
         .assert()
         .success()
-        .stdout(contains("Cleanup completed"));
+        .stdout(contains(CLEAN_LOG));
 }
 
 #[test]
 fn shorthand_run_accepts_arguments() {
-    let fixture = fixture_rhaskfile();
-    let fixture_str = fixture.to_str().expect("utf8 fixture path").to_string();
-    rhask()
-        .args([
-            "--file",
-            fixture_str.as_str(),
-            "build",
-            "release",
-            "--target=x86_64-pc-windows-gnu",
-        ])
+    rhask_with_fixture()
+        .args(["build", "release", "--target=x86_64-pc-windows-gnu"])
         .assert()
         .success()
-        .stdout(contains("profile:release").and(contains("target:x86_64-pc-windows-gnu")));
+        .stdout(contains(build_log("release", "x86_64-pc-windows-gnu")));
 }
 
 #[test]
 fn run_requires_full_path_when_ambiguous() {
-    let fixture = fixture_rhaskfile();
-    let fixture_str = fixture.to_str().expect("utf8 fixture path").to_string();
-    rhask()
-        .args(["--file", fixture_str.as_str(), "run", "deploy_staging"])
+    rhask_with_fixture()
+        .args(["run", "deploy_staging"])
         .assert()
         .failure()
         .stderr(contains(
@@ -133,78 +134,44 @@ fn run_requires_full_path_when_ambiguous() {
 
 #[test]
 fn run_with_full_path_executes_task() {
-    let fixture = fixture_rhaskfile();
-    let fixture_str = fixture.to_str().expect("utf8 fixture path").to_string();
-    rhask()
-        .args([
-            "--file",
-            fixture_str.as_str(),
-            "run",
-            "build_suite.release_flow.deploy_staging",
-        ])
+    rhask_with_fixture()
+        .args(["run", "build_suite.release_flow.deploy_staging"])
         .assert()
         .success()
-        .stdout(contains("deploy to staging (fixture)"));
+        .stdout(contains("[deploy_staging] deploy to staging (fixture)"));
 }
 
 #[test]
 fn run_task_with_positional_args() {
-    let fixture = fixture_rhaskfile();
-    let fixture_str = fixture.to_str().expect("utf8 fixture path").to_string();
-    rhask()
-        .args(["--file", fixture_str.as_str(), "run", "build", "release"])
+    rhask_with_fixture()
+        .args(["run", "build", "release"])
         .assert()
         .success()
-        .stdout(contains("profile:release").and(contains("target:x86_64-unknown-linux-gnu")));
+        .stdout(contains(build_log("release", "x86_64-unknown-linux-gnu")));
 }
 
 #[test]
 fn run_task_with_named_args() {
-    let fixture = fixture_rhaskfile();
-    let fixture_str = fixture.to_str().expect("utf8 fixture path").to_string();
-    rhask()
-        .args([
-            "--file",
-            fixture_str.as_str(),
-            "run",
-            "build",
-            "--target=x86_64-pc-windows-gnu",
-        ])
+    rhask_with_fixture()
+        .args(["run", "build", "--target=x86_64-pc-windows-gnu"])
         .assert()
         .success()
-        .stdout(contains("target:x86_64-pc-windows-gnu").and(contains("profile:debug")));
+        .stdout(contains(build_log("debug", "x86_64-pc-windows-gnu")));
 }
 
 #[test]
 fn run_task_with_mixed_args() {
-    let fixture = fixture_rhaskfile();
-    let fixture_str = fixture.to_str().expect("utf8 fixture path").to_string();
-    rhask()
-        .args([
-            "--file",
-            fixture_str.as_str(),
-            "run",
-            "build",
-            "release",
-            "--target=x86_64-pc-windows-gnu",
-        ])
+    rhask_with_fixture()
+        .args(["run", "build", "release", "--target=x86_64-pc-windows-gnu"])
         .assert()
         .success()
-        .stdout(contains("profile:release").and(contains("target:x86_64-pc-windows-gnu")));
+        .stdout(contains(build_log("release", "x86_64-pc-windows-gnu")));
 }
 
 #[test]
 fn run_task_with_unknown_arg_fails() {
-    let fixture = fixture_rhaskfile();
-    let fixture_str = fixture.to_str().expect("utf8 fixture path").to_string();
-    rhask()
-        .args([
-            "--file",
-            fixture_str.as_str(),
-            "run",
-            "build",
-            "--unknown=value",
-        ])
+    rhask_with_fixture()
+        .args(["run", "build", "--unknown=value"])
         .assert()
         .failure()
         .stderr(contains("Unknown argument"));
@@ -212,10 +179,8 @@ fn run_task_with_unknown_arg_fails() {
 
 #[test]
 fn run_task_missing_required_arg_fails() {
-    let fixture = fixture_rhaskfile();
-    let fixture_str = fixture.to_str().expect("utf8 fixture path").to_string();
-    rhask()
-        .args(["--file", fixture_str.as_str(), "run", "requires_version"])
+    rhask_with_fixture()
+        .args(["run", "requires_version"])
         .assert()
         .failure()
         .stderr(contains("Argument 'version' is missing"));
@@ -223,79 +188,75 @@ fn run_task_missing_required_arg_fails() {
 
 #[test]
 fn run_task_required_arg_success() {
-    let fixture = fixture_rhaskfile();
-    let fixture_str = fixture.to_str().expect("utf8 fixture path").to_string();
-    rhask()
-        .args([
-            "--file",
-            fixture_str.as_str(),
-            "run",
-            "requires_version",
-            "v1.2.3",
-        ])
+    rhask_with_fixture()
+        .args(["run", "requires_version", "v1.2.3"])
         .assert()
         .success()
-        .stdout(contains("requires_version => v1.2.3"));
+        .stdout(contains(format!("{REQUIRE_VERSION_PREFIX}v1.2.3")));
 }
 
 #[test]
 fn run_task_via_trigger_helper() {
-    let fixture = fixture_rhaskfile();
-    let fixture_str = fixture.to_str().expect("utf8 fixture path").to_string();
-    rhask()
-        .args(["--file", fixture_str.as_str(), "run", "trigger_clean"])
+    rhask_with_fixture()
+        .args(["run", "trigger_clean"])
         .assert()
         .success()
-        .stdout(contains("Cleanup completed"));
+        .stdout(contains(TRIGGER_CLEAN_LOG).and(contains(CLEAN_LOG)));
 }
 
 #[test]
 fn trigger_with_array_arguments() {
-    let fixture = fixture_rhaskfile();
-    let fixture_str = fixture.to_str().expect("utf8 fixture path").to_string();
-    rhask()
-        .args([
-            "--file",
-            fixture_str.as_str(),
-            "run",
-            "trigger_build_release",
-        ])
+    rhask_with_fixture()
+        .args(["run", "trigger_build_release"])
         .assert()
         .success()
-        .stdout(contains("profile:release"));
+        .stdout(contains(build_log("release", "x86_64-unknown-linux-gnu")));
 }
 
 #[test]
 fn trigger_with_named_arguments() {
-    let fixture = fixture_rhaskfile();
-    let fixture_str = fixture.to_str().expect("utf8 fixture path").to_string();
-    rhask()
-        .args(["--file", fixture_str.as_str(), "run", "trigger_build_named"])
+    rhask_with_fixture()
+        .args(["run", "trigger_build_named"])
         .assert()
         .success()
-        .stdout(contains("target:wasm32-unknown-unknown"));
+        .stdout(contains(build_log("debug", "wasm32-unknown-unknown")));
 }
 
 #[test]
 fn trigger_with_mixed_arguments() {
-    let fixture = fixture_rhaskfile();
-    let fixture_str = fixture.to_str().expect("utf8 fixture path").to_string();
-    rhask()
-        .args(["--file", fixture_str.as_str(), "run", "trigger_build_mixed"])
+    rhask_with_fixture()
+        .args(["run", "trigger_build_mixed"])
         .assert()
         .success()
-        .stdout(contains("profile:release").and(contains("target:x86_64-apple-darwin")));
+        .stdout(contains(build_log("release", "x86_64-apple-darwin")));
 }
 
 #[test]
 fn run_exec_helper() {
-    let fixture = fixture_rhaskfile();
-    let fixture_str = fixture.to_str().expect("utf8 fixture path").to_string();
-    rhask()
-        .args(["--file", fixture_str.as_str(), "run", "exec_echo"])
+    rhask_with_fixture()
+        .args(["run", "exec_echo"])
         .assert()
         .success()
-        .stdout(contains("exec-from-fixture"));
+        .stdout(contains("[exec_echo]"))
+        .stdout(contains("fixture-exec-output"));
+}
+
+#[test]
+fn run_no_actions_fails() {
+    rhask_with_fixture()
+        .args(["run", "no_actions"])
+        .assert()
+        .failure()
+        .stderr(contains("has no actions() registered."));
+}
+
+#[test]
+fn run_trigger_unknown_fails() {
+    rhask_with_fixture()
+        .args(["run", "trigger_unknown"])
+        .assert()
+        .failure()
+        .stderr(contains("Task 'unknown_task_for_tests' does not exist."));
 }
 
 #[test]
@@ -310,7 +271,7 @@ fn run_from_nested_directory_finds_rhaskfile() {
             task("hello", || {{
                 description("temp task");
                 actions(|| {{
-                    print("Hello from temp");
+                    print("[hello] temp");
                 }});
             }});
         "#
@@ -325,7 +286,7 @@ fn run_from_nested_directory_finds_rhaskfile() {
         .current_dir(&nested)
         .assert()
         .success()
-        .stdout(contains("Hello from temp"));
+        .stdout(contains("[hello] temp"));
 }
 
 #[test]
@@ -339,7 +300,7 @@ fn run_with_explicit_file_option() {
             task("greet", || {{
                 description("custom task");
                 actions(|| {{
-                    print("hi from custom file");
+                    print("[greet] hi from custom file");
                 }});
             }});
         "#
@@ -348,20 +309,20 @@ fn run_with_explicit_file_option() {
 
     rhask()
         .args([
-            "-f",
+            "--file",
             script_path.to_str().expect("utf8 path"),
             "run",
             "greet",
         ])
         .assert()
         .success()
-        .stdout(contains("hi from custom file"));
+        .stdout(contains("[greet] hi from custom file"));
 }
 
 #[test]
 fn exec_outside_actions_fails_on_load() {
     rhask()
-        .args(["--file", invalid_rhaskfile().to_str().unwrap(), "list"])
+        .args(["--file", INVALID_EXEC, "list"])
         .assert()
         .failure()
         .stderr(contains("can only be used inside actions()."));
@@ -370,34 +331,8 @@ fn exec_outside_actions_fails_on_load() {
 #[test]
 fn trigger_outside_actions_fails_on_load() {
     rhask()
-        .args([
-            "--file",
-            invalid_trigger_rhaskfile().to_str().unwrap(),
-            "list",
-        ])
+        .args(["--file", INVALID_TRIGGER, "list"])
         .assert()
         .failure()
         .stderr(contains("trigger() can only be used inside actions()."));
-}
-
-#[test]
-fn list_unknown_group() {
-    let fixture = fixture_rhaskfile();
-    let fixture_str = fixture.to_str().expect("utf8 fixture path").to_string();
-    rhask()
-        .args(["--file", fixture_str.as_str(), "list", "unknown_group"])
-        .assert()
-        .success()
-        .stderr(contains("does not exist"));
-}
-
-#[test]
-fn list_ambiguous_group() {
-    let fixture = fixture_rhaskfile();
-    let fixture_str = fixture.to_str().expect("utf8 fixture path").to_string();
-    rhask()
-        .args(["--file", fixture_str.as_str(), "list", "release_flow"])
-        .assert()
-        .success()
-        .stderr(contains("matches multiple candidates"));
 }
