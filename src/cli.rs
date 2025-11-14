@@ -1,6 +1,6 @@
 use clap::{Args, Parser, Subcommand};
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 #[command(
     name = "rhask",
     version = env!("CARGO_PKG_VERSION"),
@@ -16,7 +16,7 @@ pub struct Cli {
     pub cmd: Commands,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 pub enum Commands {
     /// Show the task list (`rhask list -h` for details)
     List(ListOptions),

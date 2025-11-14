@@ -125,8 +125,10 @@ fn run_requires_full_path_when_ambiguous() {
     rhask()
         .args(["--file", fixture_str.as_str(), "run", "deploy_staging"])
         .assert()
-        .success()
-        .stderr(contains("matches multiple candidates"));
+        .failure()
+        .stderr(contains(
+            "error: Task 'deploy_staging' matches multiple candidates:",
+        ));
 }
 
 #[test]
