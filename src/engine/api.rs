@@ -6,6 +6,7 @@ use super::runtime::{
     array_to_positional, ensure_actions_scope, map_to_named, runtime_from_ctx, trigger_impl,
     with_build_stack, ScopeGuard, ScopeKind,
 };
+use crate::logger::{debug, error, trace};
 
 pub fn register(engine: &mut Engine) {
     engine.register_global_module(exported_module!(rhask_api).into());
@@ -59,12 +60,14 @@ pub mod rhask_api {
     pub fn exec_command(ctx: NativeCallContext, command: &str) -> Result<(), Box<EvalAltResult>> {
         let runtime = runtime_from_ctx(&ctx)?;
         ensure_actions_scope(&runtime.exec_state, "exec()")?;
+        trace!("exec() invoked with command: {}", command);
 
         let status = Command::new("sh")
             .arg("-c")
             .arg(command)
             .status()
             .map_err(|err| {
+                error!("Failed to spawn command '{}': {}", command, err);
                 EvalAltResult::ErrorRuntime(
                     format!("Failed to execute command: {}", err).into(),
                     Position::NONE,
@@ -72,8 +75,18 @@ pub mod rhask_api {
             })?;
 
         if status.success() {
+            debug!(
+                "Command '{}' finished successfully (status: {:?})",
+                command,
+                status.code()
+            );
             Ok(())
         } else {
+            error!(
+                "Command '{}' exited with failure (status: {:?})",
+                command,
+                status.code()
+            );
             Err(EvalAltResult::ErrorRuntime(
                 format!("Command exited with failure (status: {})", status).into(),
                 Position::NONE,
