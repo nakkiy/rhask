@@ -1,15 +1,19 @@
 #![doc = include_str!("../README.md")]
 
 pub mod cli;
+pub mod completions;
 pub mod engine;
 pub mod logger;
 pub mod printer;
 pub mod task;
 
+pub use completions::print as print_shell_completions;
+
 use clap::Parser;
 use cli::Cli;
 use logger::*;
 use rhai::{EvalAltResult, Position};
+use std::io::{self, Write};
 
 pub fn run() -> Result<(), Box<EvalAltResult>> {
     let cli = Cli::parse();
@@ -21,16 +25,25 @@ pub fn run_with_cli(cli: Cli) -> Result<(), Box<EvalAltResult>> {
     info!("start");
     debug!("cli args: {:?}", cli);
 
-    let mut script_engine = engine::ScriptEngine::new();
     let script_path = cli
         .file
         .clone()
         .unwrap_or_else(|| "rhaskfile.rhai".to_string());
 
-    script_engine.run_script(&script_path)?;
-    dispatcher(cli.cmd, script_engine)?;
-    info!("{} end", env!("CARGO_PKG_NAME"));
-    Ok(())
+    match cli.cmd {
+        Some(cli::Commands::Completions(opts)) => {
+            print_shell_completions(opts.shell);
+            info!("{} end", env!("CARGO_PKG_NAME"));
+            Ok(())
+        }
+        other => {
+            let mut script_engine = engine::ScriptEngine::new();
+            script_engine.run_script(&script_path)?;
+            dispatcher(other, script_engine)?;
+            info!("{} end", env!("CARGO_PKG_NAME"));
+            Ok(())
+        }
+    }
 }
 
 fn dispatcher(
@@ -45,6 +58,11 @@ fn dispatcher(
             Ok(())
         }
         Some(cli::Commands::Run(opts)) => run_with_logging(engine, &opts.task, &opts.args),
+        Some(cli::Commands::CompleteTasks(opts)) => {
+            print_task_candidates(&engine, opts.prefix.as_deref().unwrap_or_default());
+            Ok(())
+        }
+        Some(cli::Commands::Completions(_)) => unreachable!("handled earlier in run_with_cli"),
         Some(cli::Commands::Direct(raw)) => {
             let (task, args) = raw.split_first().ok_or_else(|| {
                 warn!("Direct command invoked without a task name");
@@ -86,6 +104,27 @@ fn missing_task_name_error() -> Box<EvalAltResult> {
             .into(),
         Position::NONE,
     ))
+}
+
+fn print_task_candidates(engine: &engine::ScriptEngine, prefix: &str) {
+    let mut entries: Vec<String> = {
+        let registry = engine.registry.lock().unwrap();
+        let mut names: Vec<String> = registry
+            .tasks_iter()
+            .map(|(name, _)| name.clone())
+            .collect();
+        names.extend(registry.groups_iter().map(|(name, _)| name.clone()));
+        names
+    };
+
+    entries.sort();
+    entries.dedup();
+
+    let mut stdout = io::BufWriter::new(io::stdout());
+    for name in entries.into_iter().filter(|name| name.starts_with(prefix)) {
+        let _ = writeln!(stdout, "{name}");
+    }
+    let _ = stdout.flush();
 }
 
 #[cfg(test)]
