@@ -95,9 +95,9 @@ group("release_flow", || {
 | --- | --- |
 | `task(name, \|\| { ... })` | Declare a task and call `description` / `actions` / `args` inside it. |
 | `group(name, \|\| { ... })` | Declare a group that can contain tasks or nested sub-groups. |
-| `description(text)` | Attach a description to the current task or group. |
-| `actions(\|\| { ... })` | Register the execution closure for a task (only valid inside `task()`). `trigger` / `exec` may only be called inside this closure. |
-| `args(#{ key1: default1, key2: (), ... })` | Declare CLI parameters for the surrounding task (only valid inside `task()`). `()` signals “no default = required”. |
+| `description(text)` | Attach a description to the current task or group (tasks may call it only once). |
+| `actions(\|\| { ... })` | Register the execution closure for a task (only valid inside `task()` and callable once per task). `trigger` / `exec` may only be called inside this closure. |
+| `args(#{ key1: default1, key2: (), ... })` | Declare CLI parameters for the surrounding task (only valid inside `task()`). `()` signals “no default = required”. Each task may call this helper only once. |
 | `dir(path)` | Only valid inside `task()`. Each task may call it at most once. Paths resolve from the directory that contains `rhaskfile.rhai` (unless they start with `/`, in which case they are treated as absolute). Missing or non-directory paths fail during script load. |
 | `default_task("full.path")` | Call once at the top level (root file or imported files). When `rhask` runs without subcommands it executes this task; otherwise it falls back to listing tasks. |
 | `trigger(name, positional?, named?)` | Reuse another task. Provide arrays/maps for positional/named arguments. Triggered tasks run within their own `dir()` (if any); parent settings are not inherited. |
