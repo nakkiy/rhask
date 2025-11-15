@@ -382,22 +382,50 @@ _rhask() {
             ""|-*|list|run|completions)
                 ;;
             *)
-                local -a dynamic
-                dynamic=( ${(f)$(__rhask_dynamic_tasks "$cur")} )
+                local -a dynamic described
+                local candidate
+                local __rhask_prev_insert __rhask_prev_list
+                dynamic=( ${(f)"$(__rhask_dynamic_tasks "$cur")"} )
                 if (( ${#dynamic[@]} )); then
-                    local expl
-                    _wanted rhask-tasks expl 'task name' compadd -a dynamic
-                    handled=1
+                    described=()
+                    for candidate in "${dynamic[@]}"; do
+                        described+=("$candidate:task/group")
+                    done
+                    if (( ${#dynamic[@]} > 1 )); then
+                        __rhask_prev_insert="$compstate[insert]"
+                        __rhask_prev_list="$compstate[list]"
+                        compstate[insert]=''
+                        compstate[list]='list'
+                        _describe -t rhask-tasks 'task or group' described && handled=1
+                        compstate[insert]="$__rhask_prev_insert"
+                        compstate[list]="$__rhask_prev_list"
+                    else
+                        _describe -t rhask-tasks 'task or group' described && handled=1
+                    fi
                 fi
                 ;;
         esac
     elif (( first_idx > 0 )) && [[ "${words[first_idx]}" = run ]] && (( CURRENT == first_idx + 1 )); then
-        local -a dynamic
-        dynamic=( ${(f)$(__rhask_dynamic_tasks "$cur")} )
+        local -a dynamic described
+        local candidate
+        local __rhask_prev_insert __rhask_prev_list
+        dynamic=( ${(f)"$(__rhask_dynamic_tasks "$cur")"} )
         if (( ${#dynamic[@]} )); then
-            local expl
-            _wanted rhask-run-tasks expl 'task name' compadd -a dynamic
-            handled=1
+            described=()
+            for candidate in "${dynamic[@]}"; do
+                described+=("$candidate:task/group")
+            done
+            if (( ${#dynamic[@]} > 1 )); then
+                __rhask_prev_insert="$compstate[insert]"
+                __rhask_prev_list="$compstate[list]"
+                compstate[insert]=''
+                compstate[list]='list'
+                _describe -t rhask-run-tasks 'task or group' described && handled=1
+                compstate[insert]="$__rhask_prev_insert"
+                compstate[list]="$__rhask_prev_list"
+            else
+                _describe -t rhask-run-tasks 'task or group' described && handled=1
+            fi
         fi
     fi
 
