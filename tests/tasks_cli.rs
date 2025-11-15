@@ -491,8 +491,7 @@ fn child_dir_applies_even_when_parent_has_none() {
         .assert()
         .success();
 
-    let parent_contents = fs::read_to_string(root.join("parent_cwd.txt"))
-        .expect("read parent cwd");
+    let parent_contents = fs::read_to_string(root.join("parent_cwd.txt")).expect("read parent cwd");
     let child_contents =
         fs::read_to_string(child_dir.join("child_cwd.txt")).expect("read child cwd");
 

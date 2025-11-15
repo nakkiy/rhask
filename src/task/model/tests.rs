@@ -94,6 +94,18 @@ fn description_outside_context_fails() {
 }
 
 #[test]
+fn description_second_call_fails_for_task() {
+    let registry = TaskRegistry::new();
+    let mut stack = BuildStack::new();
+    stack.begin_task(&registry, "demo").unwrap();
+    stack.set_description("first").unwrap();
+    let err = stack.set_description("second").unwrap_err();
+    assert!(err
+        .to_string()
+        .contains("description() can only be defined once per task()."));
+}
+
+#[test]
 fn args_outside_task_fails() {
     let mut stack = BuildStack::new();
     let mut params = Map::new();
@@ -103,6 +115,34 @@ fn args_outside_task_fails() {
     assert!(err
         .to_string()
         .contains("args() can only be used inside task()."));
+}
+
+#[test]
+fn actions_second_call_fails() {
+    let registry = TaskRegistry::new();
+    let mut stack = BuildStack::new();
+    stack.begin_task(&registry, "demo").unwrap();
+    stack.set_actions(dummy_fn_ptr()).unwrap();
+    let err = stack.set_actions(dummy_fn_ptr()).unwrap_err();
+    assert!(err
+        .to_string()
+        .contains("actions() can only be defined once per task()."));
+}
+
+#[test]
+fn args_second_call_fails() {
+    let registry = TaskRegistry::new();
+    let mut stack = BuildStack::new();
+    stack.begin_task(&registry, "demo").unwrap();
+
+    let mut params = Map::new();
+    params.insert("profile".into(), Dynamic::from("release"));
+    stack.set_args(params.clone()).unwrap();
+
+    let err = stack.set_args(params).unwrap_err();
+    assert!(err
+        .to_string()
+        .contains("args() can only be defined once per task()."));
 }
 
 fn other_desc(result: TaskLookup) -> String {

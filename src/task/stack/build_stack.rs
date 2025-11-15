@@ -124,6 +124,11 @@ impl BuildStack {
     pub fn set_actions(&mut self, func: FnPtr) -> Result<(), Box<EvalAltResult>> {
         match self.context_stack.last_mut() {
             Some(ContextFrame::Task(builder)) => {
+                if builder.has_actions() {
+                    return Err(context_error(
+                        "actions() can only be defined once per task().",
+                    ));
+                }
                 builder.set_actions(func);
                 Ok(())
             }
@@ -144,6 +149,10 @@ impl BuildStack {
                 return Err(context_error("context mismatch: context stack is empty."));
             }
         };
+
+        if builder.has_params() {
+            return Err(context_error("args() can only be defined once per task()."));
+        }
 
         let mut entries: Vec<(String, Option<String>)> = params
             .into_iter()
@@ -172,6 +181,11 @@ impl BuildStack {
     pub fn set_description(&mut self, desc: &str) -> Result<(), Box<EvalAltResult>> {
         match self.context_stack.last_mut() {
             Some(ContextFrame::Task(builder)) => {
+                if builder.has_description() {
+                    return Err(context_error(
+                        "description() can only be defined once per task().",
+                    ));
+                }
                 builder.set_description(desc);
                 Ok(())
             }
