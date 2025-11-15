@@ -1,4 +1,5 @@
 use rhai::FnPtr;
+use std::path::PathBuf;
 
 use crate::task::model::{ParameterSpec, Task};
 
@@ -26,6 +27,14 @@ impl TaskBuilder {
 
     pub fn set_params(&mut self, params: Vec<ParameterSpec>) {
         self.task.params = params;
+    }
+
+    pub fn set_working_dir(&mut self, dir: PathBuf) {
+        self.task.working_dir = Some(dir);
+    }
+
+    pub fn has_working_dir(&self) -> bool {
+        self.task.working_dir.is_some()
     }
 
     pub fn build(self) -> (String, Task) {

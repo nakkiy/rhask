@@ -48,16 +48,21 @@ impl ScriptEngine {
     }
 
     pub fn run_script(&mut self, path: &str) -> Result<(), Box<EvalAltResult>> {
-        {
-            let mut stack = self.build_stack.lock().unwrap();
-            stack.reset();
-        }
         let script_path = resolve_script_path(path).map_err(|err| -> Box<EvalAltResult> {
             Box::new(EvalAltResult::ErrorRuntime(
                 format!("Unable to locate script file '{}': {}", path, err).into(),
                 Position::NONE,
             ))
         })?;
+        {
+            let mut stack = self.build_stack.lock().unwrap();
+            stack.reset();
+            let parent = script_path
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| PathBuf::from("."));
+            stack.set_script_root(parent);
+        }
 
         debug!("run_script({})", script_path.display());
 
@@ -86,9 +91,9 @@ impl ScriptEngine {
             reg.resolve_task(name)
         };
 
-        let (full_path, call_args, func) = match lookup {
+        let (full_path, call_args, func, task_dir) = match lookup {
             TaskLookup::Found { full_path } => {
-                let (call_args, actions) = {
+                let (call_args, actions, working_dir) = {
                     let reg = self.registry.lock().unwrap();
                     let args = prepare_arguments_from_cli(&reg, &full_path, raw_args)?;
                     trace!(
@@ -98,10 +103,12 @@ impl ScriptEngine {
                         args.len(),
                         raw_args
                     );
-                    let task_actions = reg.task(&full_path).and_then(|task| task.actions.clone());
-                    (args, task_actions)
+                    let task_meta = reg.task(&full_path);
+                    let task_actions = task_meta.and_then(|task| task.actions.clone());
+                    let working_dir = task_meta.and_then(|task| task.working_dir.clone());
+                    (args, task_actions, working_dir)
                 };
-                (full_path, call_args, actions)
+                (full_path, call_args, actions, working_dir)
             }
             TaskLookup::NotFound => {
                 warn!("run_task: '{}' not found", name);
@@ -120,7 +127,7 @@ impl ScriptEngine {
 
         if let Some(ast) = &self.ast {
             if let Some(func) = func {
-                let _scope = ActionScope::start(self.exec_state.clone());
+                let _scope = ActionScope::start(self.exec_state.clone(), task_dir);
                 trace!(
                     "run_task: invoking actions for '{}' with {} argument(s)",
                     full_path,
@@ -157,22 +164,35 @@ impl Default for ScriptEngine {
 
 #[derive(Default)]
 pub(crate) struct ExecutionState {
-    depth: usize,
+    contexts: Vec<ActionContext>,
 }
 
 impl ExecutionState {
-    fn enter(&mut self) {
-        self.depth += 1;
+    fn push(&mut self, ctx: ActionContext) {
+        self.contexts.push(ctx);
     }
 
-    fn exit(&mut self) {
-        if self.depth > 0 {
-            self.depth -= 1;
-        }
+    fn pop(&mut self) {
+        self.contexts.pop();
     }
 
     pub(crate) fn is_active(&self) -> bool {
-        self.depth > 0
+        !self.contexts.is_empty()
+    }
+
+    pub(crate) fn current_dir(&self) -> Option<PathBuf> {
+        self.contexts.last().and_then(|ctx| ctx.working_dir.clone())
+    }
+}
+
+#[derive(Clone, Debug)]
+struct ActionContext {
+    working_dir: Option<PathBuf>,
+}
+
+impl ActionContext {
+    fn new(working_dir: Option<PathBuf>) -> Self {
+        Self { working_dir }
     }
 }
 
@@ -181,9 +201,9 @@ pub(crate) struct ActionScope {
 }
 
 impl ActionScope {
-    pub(crate) fn start(state: Arc<Mutex<ExecutionState>>) -> Self {
+    pub(crate) fn start(state: Arc<Mutex<ExecutionState>>, working_dir: Option<PathBuf>) -> Self {
         let mut guard = state.lock().unwrap();
-        guard.enter();
+        guard.push(ActionContext::new(working_dir));
         drop(guard);
         Self { state }
     }
@@ -191,12 +211,13 @@ impl ActionScope {
     pub(crate) fn start_nested(
         state: Arc<Mutex<ExecutionState>>,
         label: &str,
+        working_dir: Option<PathBuf>,
     ) -> Result<Self, Box<EvalAltResult>> {
         let mut guard = state.lock().unwrap();
         if !guard.is_active() {
             return Err(actions_only_error(label));
         }
-        guard.enter();
+        guard.push(ActionContext::new(working_dir));
         drop(guard);
         Ok(Self { state })
     }
@@ -205,7 +226,7 @@ impl ActionScope {
 impl Drop for ActionScope {
     fn drop(&mut self) {
         let mut guard = self.state.lock().unwrap();
-        guard.exit();
+        guard.pop();
     }
 }
 

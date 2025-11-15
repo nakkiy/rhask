@@ -54,11 +54,13 @@ pub(super) fn trigger_impl(
 
     match lookup {
         TaskLookup::Found { full_path } => {
-            let (func, args) = {
+            let (func, args, task_dir) = {
                 let reg = registry.lock().unwrap();
                 let args = prepare_arguments_from_parts(&reg, &full_path, positional, named)?;
-                let action = reg.task(&full_path).and_then(|task| task.actions.clone());
-                (action, args)
+                let task_meta = reg.task(&full_path);
+                let action = task_meta.and_then(|task| task.actions.clone());
+                let working_dir = task_meta.and_then(|task| task.working_dir.clone());
+                (action, args, working_dir)
             };
 
             {
@@ -78,7 +80,7 @@ pub(super) fn trigger_impl(
                     full_path,
                     args.len()
                 );
-                let _scope = ActionScope::start_nested(state.clone(), "trigger()")?;
+                let _scope = ActionScope::start_nested(state.clone(), "trigger()", task_dir)?;
                 call_with_context(ctx, &func, args)?;
                 Ok(())
             } else {

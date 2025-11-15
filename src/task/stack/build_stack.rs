@@ -1,4 +1,6 @@
 use rhai::{EvalAltResult, FnPtr, ImmutableString, Map};
+use std::fs;
+use std::path::{Path, PathBuf};
 
 use crate::task::builder::{GroupBuilder, TaskBuilder};
 use crate::task::model::{context_error, ParameterSpec, RegistryEntry};
@@ -14,12 +16,14 @@ pub(crate) enum ContextFrame {
 #[derive(Clone)]
 pub struct BuildStack {
     context_stack: Vec<ContextFrame>,
+    script_root: Option<PathBuf>,
 }
 
 impl Default for BuildStack {
     fn default() -> Self {
         Self {
             context_stack: vec![ContextFrame::Root],
+            script_root: None,
         }
     }
 }
@@ -32,6 +36,11 @@ impl BuildStack {
     pub fn reset(&mut self) {
         self.context_stack.clear();
         self.context_stack.push(ContextFrame::Root);
+        self.script_root = None;
+    }
+
+    pub fn set_script_root(&mut self, root: PathBuf) {
+        self.script_root = Some(root);
     }
 
     pub(crate) fn begin_task(
@@ -177,6 +186,36 @@ impl BuildStack {
         }
     }
 
+    pub fn set_directory(&mut self, path: &str) -> Result<(), Box<EvalAltResult>> {
+        match self.context_stack.last() {
+            Some(ContextFrame::Task(builder)) => {
+                if builder.has_working_dir() {
+                    return Err(context_error("dir() can only be defined once per task()."));
+                }
+            }
+            Some(ContextFrame::Group(_)) | Some(ContextFrame::Root) => {
+                return Err(context_error("dir() can only be used inside task()."));
+            }
+            None => {
+                return Err(context_error("context mismatch: context stack is empty."));
+            }
+        }
+
+        let resolved = self.resolve_directory(path)?;
+
+        match self.context_stack.last_mut() {
+            Some(ContextFrame::Task(builder)) => {
+                builder.set_working_dir(resolved);
+            }
+            _ => {
+                return Err(context_error(
+                    "dir() context mismatch while applying working directory.",
+                ));
+            }
+        }
+        Ok(())
+    }
+
     fn build_child_path(&self, name: &str) -> Result<String, Box<EvalAltResult>> {
         match self.context_stack.last() {
             Some(ContextFrame::Root) => Ok(name.to_string()),
@@ -267,5 +306,130 @@ impl BuildStack {
         } else {
             Ok(())
         }
+    }
+
+    fn resolve_directory(&self, path: &str) -> Result<PathBuf, Box<EvalAltResult>> {
+        let trimmed = path.trim();
+        if trimmed.is_empty() {
+            return Err(context_error("dir() requires a non-empty path."));
+        }
+        let raw = Path::new(trimmed);
+        let candidate = if raw.is_absolute() {
+            raw.to_path_buf()
+        } else {
+            let root = self.script_root.clone().ok_or_else(|| {
+                context_error("dir() cannot be used before the rhaskfile root is known.")
+            })?;
+            root.join(raw)
+        };
+
+        let normalized = candidate.canonicalize().map_err(|err| {
+            context_error(format!(
+                "dir(): unable to resolve '{}': {}",
+                candidate.display(),
+                err
+            ))
+        })?;
+
+        let metadata = fs::metadata(&normalized).map_err(|err| {
+            context_error(format!(
+                "dir(): unable to inspect '{}': {}",
+                normalized.display(),
+                err
+            ))
+        })?;
+
+        if !metadata.is_dir() {
+            return Err(context_error(format!(
+                "dir(): '{}' is not a directory.",
+                normalized.display()
+            )));
+        }
+
+        Ok(normalized)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn dir_sets_absolute_path_from_relative_input() {
+        let temp = tempdir().expect("temp dir");
+        let root = temp.path().join("workspace");
+        let scripts = root.join("scripts");
+        fs::create_dir_all(&scripts).expect("create scripts dir");
+
+        let mut stack = BuildStack::new();
+        stack.set_script_root(root.clone());
+        let mut registry = TaskRegistry::new();
+        stack.begin_task(&registry, "demo").expect("begin task");
+        stack.set_directory("scripts").expect("set dir");
+        stack
+            .end_task(&mut registry)
+            .expect("end task with dir configured");
+
+        let task = registry.task("demo").expect("task stored");
+        let expected = scripts
+            .canonicalize()
+            .expect("canonicalize scripts directory");
+        assert_eq!(task.working_dir.as_ref(), Some(&expected));
+    }
+
+    #[test]
+    fn dir_rejects_second_invocation_in_same_task() {
+        let temp = tempdir().expect("temp dir");
+        let root = temp.path().join("workspace");
+        fs::create_dir_all(root.join("scripts")).expect("create scripts dir");
+
+        let mut stack = BuildStack::new();
+        stack.set_script_root(root);
+        let registry = TaskRegistry::new();
+        stack.begin_task(&registry, "dup").expect("begin task");
+        stack.set_directory("scripts").expect("first dir()");
+        assert!(stack.set_directory("scripts").is_err());
+    }
+
+    #[test]
+    fn dir_requires_directory_to_exist() {
+        let temp = tempdir().expect("temp dir");
+        let root = temp.path().join("workspace");
+        fs::create_dir_all(&root).expect("create workspace root");
+
+        let mut stack = BuildStack::new();
+        stack.set_script_root(root);
+        let registry = TaskRegistry::new();
+        stack.begin_task(&registry, "missing").expect("begin task");
+        assert!(stack.set_directory("unknown_dir").is_err());
+    }
+
+    #[test]
+    fn dir_requires_task_scope() {
+        let temp = tempdir().expect("temp dir");
+        let root = temp.path().to_path_buf();
+        let mut stack = BuildStack::new();
+        stack.set_script_root(root);
+        assert!(stack.set_directory("scripts").is_err());
+    }
+
+    #[test]
+    fn dir_accepts_absolute_path() {
+        let temp = tempdir().expect("temp dir");
+        let root = temp.path().join("workspace");
+        let scripts = root.join("scripts");
+        fs::create_dir_all(&scripts).expect("create scripts dir");
+
+        let mut stack = BuildStack::new();
+        stack.set_script_root(root);
+        let mut registry = TaskRegistry::new();
+        stack.begin_task(&registry, "abs").expect("begin task");
+        let abs = scripts.canonicalize().expect("canonicalize scripts dir");
+        let raw = abs.to_str().expect("utf8 path").to_string();
+        stack.set_directory(&raw).expect("set dir using absolute");
+        stack.end_task(&mut registry).expect("end task");
+        let task = registry.task("abs").expect("task stored");
+        assert_eq!(task.working_dir.as_ref(), Some(&abs));
     }
 }

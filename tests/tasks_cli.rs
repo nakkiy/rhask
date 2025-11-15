@@ -15,6 +15,10 @@ const INVALID_TRIGGER: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/tests/rhaskfile_invalid_trigger.rhai"
 );
+const INVALID_DIR: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/rhaskfile_invalid_dir.rhai"
+);
 
 fn rhask() -> Command {
     Command::cargo_bin("rhask").expect("rhask binary build failed")
@@ -298,6 +302,218 @@ fn run_from_nested_directory_finds_rhaskfile() {
 }
 
 #[test]
+fn dir_exec_uses_rhaskfile_root_for_relative_paths() {
+    let temp = tempdir().expect("create temp dir");
+    let root = temp.path();
+    let scripts = root.join("scripts");
+    fs::create_dir_all(&scripts).expect("create scripts dir");
+
+    let script_path = root.join("rhaskfile.rhai");
+    let mut file = fs::File::create(&script_path).expect("create script file");
+    writeln!(
+        file,
+        r#"
+            task("write_pwd", || {{
+                dir("scripts");
+                actions(|| {{
+                    exec("pwd > cwd.txt");
+                }});
+            }});
+        "#
+    )
+    .expect("write script");
+
+    let nested = root.join("subdir/child");
+    fs::create_dir_all(&nested).expect("create nested dirs");
+
+    rhask()
+        .current_dir(&nested)
+        .args(["run", "write_pwd"])
+        .assert()
+        .success();
+
+    let cwd_file = scripts.join("cwd.txt");
+    let contents = fs::read_to_string(&cwd_file).expect("read cwd output");
+    let expected = scripts
+        .canonicalize()
+        .expect("canonicalize scripts dir")
+        .to_str()
+        .expect("utf8 path")
+        .to_string();
+    assert_eq!(contents.trim(), expected);
+}
+
+#[test]
+fn dir_settings_do_not_leak_between_triggered_tasks() {
+    let temp = tempdir().expect("create temp dir");
+    let root = temp.path();
+    let parent_dir = root.join("parent_dir");
+    let child_dir = root.join("child_dir");
+    fs::create_dir_all(&parent_dir).expect("create parent dir");
+    fs::create_dir_all(&child_dir).expect("create child dir");
+
+    let script_path = root.join("rhaskfile.rhai");
+    let mut file = fs::File::create(&script_path).expect("create script file");
+    writeln!(
+        file,
+        r#"
+            task("child_task", || {{
+                dir("child_dir");
+                actions(|| {{
+                    exec("pwd > child_cwd.txt");
+                }});
+            }});
+
+            task("parent_task", || {{
+                dir("parent_dir");
+                actions(|| {{
+                    exec("pwd > parent_cwd.txt");
+                    trigger("child_task");
+                }});
+            }});
+        "#
+    )
+    .expect("write script");
+
+    rhask()
+        .current_dir(root)
+        .args(["run", "parent_task"])
+        .assert()
+        .success();
+
+    let parent_contents =
+        fs::read_to_string(parent_dir.join("parent_cwd.txt")).expect("read parent cwd");
+    let child_contents =
+        fs::read_to_string(child_dir.join("child_cwd.txt")).expect("read child cwd");
+
+    let expected_parent = parent_dir
+        .canonicalize()
+        .expect("canonical parent dir")
+        .to_str()
+        .expect("utf8 path")
+        .to_string();
+    let expected_child = child_dir
+        .canonicalize()
+        .expect("canonical child dir")
+        .to_str()
+        .expect("utf8 path")
+        .to_string();
+
+    assert_eq!(parent_contents.trim(), expected_parent);
+    assert_eq!(child_contents.trim(), expected_child);
+}
+
+#[test]
+fn child_without_dir_runs_in_launcher_directory() {
+    let temp = tempdir().expect("create temp dir");
+    let root = temp.path();
+    let parent_dir = root.join("parent_dir");
+    fs::create_dir_all(&parent_dir).expect("create parent dir");
+
+    let script_path = root.join("rhaskfile.rhai");
+    let mut file = fs::File::create(&script_path).expect("create script file");
+    writeln!(
+        file,
+        r#"
+            task("child_task", || {{
+                actions(|| {{
+                    exec("pwd > child_cwd.txt");
+                }});
+            }});
+
+            task("parent_task", || {{
+                dir("parent_dir");
+                actions(|| {{
+                    trigger("child_task");
+                }});
+            }});
+        "#
+    )
+    .expect("write script");
+
+    rhask()
+        .current_dir(root)
+        .args(["run", "parent_task"])
+        .assert()
+        .success();
+
+    let child_file = root.join("child_cwd.txt");
+    assert!(
+        child_file.exists(),
+        "child_cwd.txt should be created at the launch directory"
+    );
+    let contents = fs::read_to_string(&child_file).expect("read child cwd");
+    let expected = root
+        .canonicalize()
+        .expect("canonicalize root dir")
+        .to_str()
+        .expect("utf8 path")
+        .to_string();
+    assert_eq!(contents.trim(), expected);
+    assert!(
+        !parent_dir.join("child_cwd.txt").exists(),
+        "child file must not be written under the parent's dir"
+    );
+}
+
+#[test]
+fn child_dir_applies_even_when_parent_has_none() {
+    let temp = tempdir().expect("create temp dir");
+    let root = temp.path();
+    let child_dir = root.join("child_dir");
+    fs::create_dir_all(&child_dir).expect("create child dir");
+
+    let script_path = root.join("rhaskfile.rhai");
+    let mut file = fs::File::create(&script_path).expect("create script file");
+    writeln!(
+        file,
+        r#"
+            task("child_task", || {{
+                dir("child_dir");
+                actions(|| {{
+                    exec("pwd > child_cwd.txt");
+                }});
+            }});
+
+            task("parent_task", || {{
+                actions(|| {{
+                    exec("pwd > parent_cwd.txt");
+                    trigger("child_task");
+                }});
+            }});
+        "#
+    )
+    .expect("write script");
+
+    rhask()
+        .current_dir(root)
+        .args(["run", "parent_task"])
+        .assert()
+        .success();
+
+    let parent_contents = fs::read_to_string(root.join("parent_cwd.txt"))
+        .expect("read parent cwd");
+    let child_contents =
+        fs::read_to_string(child_dir.join("child_cwd.txt")).expect("read child cwd");
+
+    let expected_parent = root
+        .canonicalize()
+        .expect("canonical root dir")
+        .to_str()
+        .expect("utf8 path")
+        .to_string();
+    let expected_child = child_dir
+        .canonicalize()
+        .expect("canonical child dir")
+        .to_str()
+        .expect("utf8 path")
+        .to_string();
+
+    assert_eq!(parent_contents.trim(), expected_parent);
+    assert_eq!(child_contents.trim(), expected_child);
+}
+
+#[test]
 fn run_with_explicit_file_option() {
     let temp = tempdir().expect("create temp dir");
     let script_path = temp.path().join("custom.rhai");
@@ -367,4 +583,13 @@ fn trigger_outside_actions_fails_on_load() {
         .assert()
         .failure()
         .stderr(contains("trigger() can only be used inside actions()."));
+}
+
+#[test]
+fn dir_defined_twice_in_same_task_fails_on_load() {
+    rhask()
+        .args(["--file", INVALID_DIR, "list"])
+        .assert()
+        .failure()
+        .stderr(contains("dir() can only be defined once per task()."));
 }

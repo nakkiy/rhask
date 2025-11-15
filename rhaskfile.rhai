@@ -72,5 +72,33 @@ group("build_suite", || {
     });
 });
 
+group("coverage", || {
+    description("Coverage measurement helpers");
+
+    task("all", || {
+        description("Run coverage for unit + integration tests");
+        dir("./scripts");
+        actions(|| {
+            exec("./coverage.sh --mode all");
+        });
+    });
+
+    task("unit", || {
+        description("Run coverage for unit tests only");
+        dir("./scripts");
+        actions(|| {
+            exec("./coverage.sh --mode unit");
+        });
+    });
+
+    task("integration", || {
+        description("Run coverage for integration tests only");
+        dir("./scripts");
+        actions(|| {
+            exec("./coverage.sh --mode integration");
+        });
+    });
+});
+
 import "rhaskfile_demo";
 import "rhaskfile_sample";

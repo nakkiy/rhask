@@ -36,6 +36,7 @@ rhask run <task>
 - Use `description()`, `actions()`, and `args()` inside `task()` or `group()` blocks to declare metadata, logic, and parameters.
 - Arguments support positional values, `key=value`, `--key=value`, and `--key value` styles. Defaults and required flags are declared via `args(#{ ... })`.
 - `default_task("group.task")` (callable from the root file or any imported file) lets you define what happens when `rhask` is executed with no explicit subcommand; it runs the configured task or falls back to `rhask list` when unset.
+- `dir("path")` (callable once per task) pins the working directory for that task. Relative paths are resolved from the directory that hosts `rhaskfile.rhai`, while absolute paths are honored as-is. Both `exec()` and triggered tasks respect this setting so commands always run from the intended location.
 - Logging is powered by `env_logger`. Regular runs stay quiet, while `RUST_LOG=debug rhask run …` surfaces the internal trace.
 
 ---
@@ -97,9 +98,28 @@ group("release_flow", || {
 | `description(text)` | Attach a description to the current task or group. |
 | `actions(\|\| { ... })` | Register the execution closure for a task (only valid inside `task()`). `trigger` / `exec` may only be called inside this closure. |
 | `args(#{ key1: default1, key2: (), ... })` | Declare CLI parameters for the surrounding task (only valid inside `task()`). `()` signals “no default = required”. |
+| `dir(path)` | Only valid inside `task()`. Each task may call it at most once. Paths resolve from the directory that contains `rhaskfile.rhai` (unless they start with `/`, in which case they are treated as absolute). Missing or non-directory paths fail during script load. |
 | `default_task("full.path")` | Call once at the top level (root file or imported files). When `rhask` runs without subcommands it executes this task; otherwise it falls back to listing tasks. |
-| `trigger(name, positional?, named?)` | Reuse another task. Provide arrays/maps for positional/named arguments. |
-| `exec(command)` | Run an external command via the shell. Returns `()` on success. |
+| `trigger(name, positional?, named?)` | Reuse another task. Provide arrays/maps for positional/named arguments. Triggered tasks run within their own `dir()` (if any); parent settings are not inherited. |
+| `exec(command)` | Run an external command via the shell. Uses the task’s `dir()` if configured, otherwise the directory where `rhask` was launched. Returns `()` on success. |
+
+#### Pinning the working directory with `dir()`
+
+- Call `dir(path)` once inside each `task()` to lock the working directory for `exec()` and triggered tasks. Paths starting with `/` are treated as absolute; all other paths are resolved relative to the directory that contains `rhaskfile.rhai` (or the script passed via `-f/--file`) and canonicalized into an absolute path.
+- Rhask validates the path when the script is loaded. Missing files or non-directory targets abort with an error such as `dir(): '...' is not a directory.`.
+- When `dir()` is set, `exec()` runs commands via `sh -c` after calling `Command::current_dir()`. Tasks reached via `trigger()` use their own `dir()` setting (if defined) and never inherit the caller’s directory.
+- Tasks without `dir()` continue to run inside the shell’s current working directory—the same behavior Rhask used before this helper existed. Use `dir(".")` or `dir("scripts")` to make the intent explicit.
+- Relative paths always resolve against the directory that hosted the **first** `rhaskfile` you loaded (typically the root file passed to `-f/--file`). If you import a script from that root but later execute the same script standalone via `rhask -f child/file.rhai`, the base directory changes and existing `dir("relative/path")` entries may point somewhere else. Keep this limitation in mind when sharing scripts between standalone and imported use cases.
+
+```rhai
+task("coverage", || {
+    description("Run coverage helper script from scripts/");
+    dir("scripts");
+    actions(|| {
+        exec("./coverage.sh --mode unit");
+    });
+});
+```
 
 ---
 

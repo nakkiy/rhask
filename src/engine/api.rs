@@ -46,6 +46,11 @@ pub mod rhask_api {
         with_build_stack(&ctx, |stack| stack.set_description(desc))
     }
 
+    #[rhai_fn(global, name = "dir", return_raw)]
+    pub fn set_directory(ctx: NativeCallContext, path: &str) -> Result<(), Box<EvalAltResult>> {
+        with_build_stack(&ctx, |stack| stack.set_directory(path))
+    }
+
     #[rhai_fn(global, name = "default_task", return_raw)]
     pub fn register_default_task(
         ctx: NativeCallContext,
@@ -72,17 +77,25 @@ pub mod rhask_api {
         ensure_actions_scope(&runtime.exec_state, "exec()")?;
         trace!("exec() invoked with command: {}", command);
 
-        let status = Command::new("sh")
-            .arg("-c")
-            .arg(command)
-            .status()
-            .map_err(|err| {
-                error!("Failed to spawn command '{}': {}", command, err);
-                EvalAltResult::ErrorRuntime(
-                    format!("Failed to execute command: {}", err).into(),
-                    Position::NONE,
-                )
-            })?;
+        let working_dir = {
+            let guard = runtime.exec_state.lock().unwrap();
+            guard.current_dir()
+        };
+
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c").arg(command);
+        if let Some(dir) = working_dir {
+            trace!("exec() using cwd {}", dir.display());
+            cmd.current_dir(dir);
+        }
+
+        let status = cmd.status().map_err(|err| {
+            error!("Failed to spawn command '{}': {}", command, err);
+            EvalAltResult::ErrorRuntime(
+                format!("Failed to execute command: {}", err).into(),
+                Position::NONE,
+            )
+        })?;
 
         if status.success() {
             debug!(
