@@ -150,3 +150,58 @@ fn colors_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     *ENABLED.get_or_init(|| io::stdout().is_terminal())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::task::{ListItem, ListMessage, ListMessageLevel, ListOutput};
+
+    fn sample_output() -> ListOutput {
+        let mut output = ListOutput::default();
+        output.messages.push(ListMessage {
+            level: ListMessageLevel::Info,
+            text: "info message".into(),
+        });
+        output.messages.push(ListMessage {
+            level: ListMessageLevel::Warn,
+            text: "warn message".into(),
+        });
+        output.messages.push(ListMessage {
+            level: ListMessageLevel::Error,
+            text: "error message".into(),
+        });
+        output.items.push(ListItem {
+            kind: ListItemKind::Group,
+            depth: 0,
+            name: "build".into(),
+            full_name: "build".into(),
+            description: Some("build tasks".into()),
+        });
+        output.items.push(ListItem {
+            kind: ListItemKind::Task,
+            depth: 1,
+            name: "debug".into(),
+            full_name: "build.debug".into(),
+            description: Some("debug build".into()),
+        });
+        output
+    }
+
+    #[test]
+    fn format_colored_line_wraps_group_and_task() {
+        let group = format_colored_line(ListItemKind::Group, "> build", Some(" : desc"));
+        assert!(group.contains(BG_GROUP));
+        assert!(group.contains(RESET));
+
+        let task = format_colored_line(ListItemKind::Task, "- deploy", None);
+        assert!(task.contains(FG_CYAN));
+        assert!(task.contains(RESET));
+    }
+
+    #[test]
+    fn print_list_handles_tree_and_flat_modes() {
+        let output = sample_output();
+        print_list(&output, ListRenderMode::Tree);
+        print_list(&output, ListRenderMode::Flat);
+    }
+}

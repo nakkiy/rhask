@@ -1,7 +1,18 @@
+fn log_task(name, message) {
+    print("[" + name + "] " + message);
+}
+
+fn log_build(profile, target) {
+    let detail = "profile=" + profile + ", target=" + target;
+    log_task("build", detail);
+}
+
+default_task("clean");
+
 task("clean", || {
     description("Remove build artifacts");
     actions(|| {
-        print("Cleanup completed");
+        log_task("clean", "workspace cleaned");
     });
 });
 
@@ -12,7 +23,7 @@ task("build", || {
         target: "x86_64-unknown-linux-gnu"
     });
     actions(|profile, target| {
-        print("build => profile:" + profile + ", target:" + target);
+        log_build(profile, target);
     });
 });
 
@@ -45,30 +56,35 @@ task("requires_version", || {
     description("Version argument is required");
     args(#{ version: () });
     actions(|version| {
-        print("requires_version => " + version);
+        log_task("requires_version", "version=" + version);
     });
 });
 
 task("trigger_clean", || {
     description("Reuse clean task through trigger()");
     actions(|| {
+        log_task("trigger_clean", "delegating to clean");
         trigger("clean");
-    });
-});
-
-task("loop", || {
-    description("Print a simple counter loop");
-    actions(|| {
-        for n in 1..5 {
-            print("count: " + n);
-        }
     });
 });
 
 task("exec_echo", || {
     description("Run echo through exec()");
     actions(|| {
-        exec("echo exec-from-fixture");
+        log_task("exec_echo", "spawning echo helper");
+        exec("echo fixture-exec-output");
+    });
+});
+
+task("no_actions", || {
+    description("Task intentionally missing actions()");
+    // intentionally empty
+});
+
+task("trigger_unknown", || {
+    description("Trigger an unknown task");
+    actions(|| {
+        trigger("unknown_task_for_tests");
     });
 });
 
@@ -78,7 +94,8 @@ group("build_suite", || {
     task("build_debug", || {
         description("Run a debug build");
         actions(|| {
-            print("debug build (test fixture)");
+            log_task("build_debug", "pipeline started");
+            trigger("build");
         });
     });
 
@@ -88,14 +105,14 @@ group("build_suite", || {
         task("package_artifacts", || {
             description("Package the build artifacts");
             actions(|| {
-                print("package artifacts (test fixture)");
+                log_task("package_artifacts", "archive ready");
             });
         });
 
         task("deploy_staging", || {
             description("Deploy to staging");
             actions(|| {
-                print("deploy to staging (fixture)");
+                log_task("deploy_staging", "deploy to staging (fixture)");
             });
         });
     });
@@ -107,7 +124,7 @@ group("ops_suite", || {
     task("deploy_staging", || {
         description("Deploy to staging (operations version)");
         actions(|| {
-            print("ops deploy (fixture)");
+            log_task("ops.deploy_staging", "operations deploy");
         });
     });
 });
@@ -118,7 +135,7 @@ group("ops_release_flow", || {
     task("monitor", || {
         description("Start monitoring");
         actions(|| {
-            print("ops monitor (fixture)");
+            log_task("monitor", "ops monitor started");
         });
     });
 });
@@ -131,7 +148,7 @@ group("build_ops_release_flow", || {
         task("noop", || {
             description("No-op task");
             actions(|| {
-                print("noop (fixture)");
+                log_task("noop", "fixture noop");
             });
         });
     });

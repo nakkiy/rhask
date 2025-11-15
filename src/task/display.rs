@@ -222,3 +222,61 @@ impl TaskRegistry {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::task::stack::BuildStack;
+
+    fn registry_with_sample_groups() -> TaskRegistry {
+        let mut registry = TaskRegistry::new();
+        let mut stack = BuildStack::new();
+
+        stack.begin_group(&registry, "ops").unwrap();
+        stack.set_description("operations").unwrap();
+        stack.begin_group(&registry, "release").unwrap();
+        stack.begin_task(&registry, "deploy").unwrap();
+        stack.set_description("deploy release").unwrap();
+        stack.end_task(&mut registry).unwrap();
+        stack.end_group(&mut registry).unwrap();
+        stack.end_group(&mut registry).unwrap();
+
+        stack.begin_group(&registry, "build").unwrap();
+        stack.begin_group(&registry, "release").unwrap();
+        stack.end_group(&mut registry).unwrap();
+        stack.end_group(&mut registry).unwrap();
+
+        registry
+    }
+
+    #[test]
+    fn collect_list_output_for_specific_group() {
+        let registry = registry_with_sample_groups();
+        let output = registry.collect_list_output(Some("ops"));
+        assert!(!output.items.is_empty());
+        assert!(output
+            .items
+            .iter()
+            .any(|item| item.full_name == "ops.release"));
+    }
+
+    #[test]
+    fn collect_list_output_warns_when_group_ambiguous() {
+        let registry = registry_with_sample_groups();
+        let output = registry.collect_list_output(Some("release"));
+        assert!(output.messages.iter().any(|msg| {
+            msg.text.contains("matches multiple candidates") && msg.level == ListMessageLevel::Warn
+        }));
+    }
+
+    #[test]
+    fn collect_list_output_warns_when_group_missing() {
+        let registry = registry_with_sample_groups();
+        let output = registry.collect_list_output(Some("unknown"));
+        assert!(output
+            .messages
+            .iter()
+            .any(|msg| msg.text.contains("does not exist")));
+        assert!(output.items.is_empty());
+    }
+}

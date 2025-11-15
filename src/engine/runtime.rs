@@ -4,9 +4,8 @@ use rhai::{
 };
 use std::sync::{Arc, Mutex};
 
-use super::core::{actions_only_error, ActionScope, ExecutionState};
+use super::core::{actions_only_error, user_error, ActionScope, ExecutionState};
 use crate::logger::{error, trace, warn};
-use crate::printer;
 use crate::task::{prepare_arguments_from_parts, BuildStack, TaskLookup, TaskRegistry};
 
 pub(super) type RegistryRef = Arc<Mutex<TaskRegistry>>;
@@ -55,11 +54,13 @@ pub(super) fn trigger_impl(
 
     match lookup {
         TaskLookup::Found { full_path } => {
-            let (func, args) = {
+            let (func, args, task_dir) = {
                 let reg = registry.lock().unwrap();
                 let args = prepare_arguments_from_parts(&reg, &full_path, positional, named)?;
-                let action = reg.task(&full_path).and_then(|task| task.actions.clone());
-                (action, args)
+                let task_meta = reg.task(&full_path);
+                let action = task_meta.and_then(|task| task.actions.clone());
+                let working_dir = task_meta.and_then(|task| task.working_dir.clone());
+                (action, args, working_dir)
             };
 
             {
@@ -79,33 +80,38 @@ pub(super) fn trigger_impl(
                     full_path,
                     args.len()
                 );
-                let _scope = ActionScope::start_nested(state.clone(), "trigger()")?;
+                let _scope = ActionScope::start_nested(state.clone(), "trigger()", task_dir)?;
                 call_with_context(ctx, &func, args)?;
+                Ok(())
             } else {
                 warn!(
                     "trigger_impl: task '{}' has no actions registered",
                     full_path
                 );
-                printer::warn(format!("Task '{}' has no actions() registered.", full_path));
+                Err(user_error(format!(
+                    "trigger(): Task '{}' has no actions() registered.",
+                    full_path
+                )))
             }
-            Ok(())
         }
         TaskLookup::Ambiguous(candidates) => {
             warn!(
                 "trigger_impl: name '{}' ambiguous -> {:?}",
                 name, candidates
             );
-            printer::warn(format!("Task '{}' matches multiple candidates:", name));
+            let mut message = format!("trigger(): Task '{}' matches multiple candidates:\n", name);
             for candidate in candidates {
-                printer::warn(format!("  - {}", candidate));
+                message.push_str(&format!("  - {}\n", candidate));
             }
-            printer::warn("Please use the fully-qualified name (e.g. group.task).");
-            Ok(())
+            message.push_str("Please use the fully-qualified name (e.g. group.task).");
+            Err(user_error(message))
         }
         TaskLookup::NotFound => {
             warn!("trigger_impl: task '{}' not found", name);
-            printer::warn(format!("Task '{}' does not exist.", name));
-            Ok(())
+            Err(user_error(format!(
+                "trigger(): Task '{}' does not exist.",
+                name
+            )))
         }
     }
 }

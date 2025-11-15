@@ -6,6 +6,7 @@ use super::runtime::{
     array_to_positional, ensure_actions_scope, map_to_named, runtime_from_ctx, trigger_impl,
     with_build_stack, ScopeGuard, ScopeKind,
 };
+use crate::logger::{debug, error, trace};
 
 pub fn register(engine: &mut Engine) {
     engine.register_global_module(exported_module!(rhask_api).into());
@@ -45,6 +46,21 @@ pub mod rhask_api {
         with_build_stack(&ctx, |stack| stack.set_description(desc))
     }
 
+    #[rhai_fn(global, name = "dir", return_raw)]
+    pub fn set_directory(ctx: NativeCallContext, path: &str) -> Result<(), Box<EvalAltResult>> {
+        with_build_stack(&ctx, |stack| stack.set_directory(path))
+    }
+
+    #[rhai_fn(global, name = "default_task", return_raw)]
+    pub fn register_default_task(
+        ctx: NativeCallContext,
+        name: &str,
+    ) -> Result<(), Box<EvalAltResult>> {
+        let runtime = runtime_from_ctx(&ctx)?;
+        let mut registry = runtime.registry.lock().unwrap();
+        registry.set_default_task(name)
+    }
+
     #[rhai_fn(global, name = "discription", return_raw)]
     pub fn set_discription(ctx: NativeCallContext, desc: &str) -> Result<(), Box<EvalAltResult>> {
         set_description(ctx, desc)
@@ -59,21 +75,41 @@ pub mod rhask_api {
     pub fn exec_command(ctx: NativeCallContext, command: &str) -> Result<(), Box<EvalAltResult>> {
         let runtime = runtime_from_ctx(&ctx)?;
         ensure_actions_scope(&runtime.exec_state, "exec()")?;
+        trace!("exec() invoked with command: {}", command);
 
-        let status = Command::new("sh")
-            .arg("-c")
-            .arg(command)
-            .status()
-            .map_err(|err| {
-                EvalAltResult::ErrorRuntime(
-                    format!("Failed to execute command: {}", err).into(),
-                    Position::NONE,
-                )
-            })?;
+        let working_dir = {
+            let guard = runtime.exec_state.lock().unwrap();
+            guard.current_dir()
+        };
+
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c").arg(command);
+        if let Some(dir) = working_dir {
+            trace!("exec() using cwd {}", dir.display());
+            cmd.current_dir(dir);
+        }
+
+        let status = cmd.status().map_err(|err| {
+            error!("Failed to spawn command '{}': {}", command, err);
+            EvalAltResult::ErrorRuntime(
+                format!("Failed to execute command: {}", err).into(),
+                Position::NONE,
+            )
+        })?;
 
         if status.success() {
+            debug!(
+                "Command '{}' finished successfully (status: {:?})",
+                command,
+                status.code()
+            );
             Ok(())
         } else {
+            error!(
+                "Command '{}' exited with failure (status: {:?})",
+                command,
+                status.code()
+            );
             Err(EvalAltResult::ErrorRuntime(
                 format!("Command exited with failure (status: {})", status).into(),
                 Position::NONE,
