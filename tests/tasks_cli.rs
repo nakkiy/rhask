@@ -610,9 +610,13 @@ fn generate_zsh_completions_include_dynamic_tasks() {
         .success()
         .stdout(
             contains("__rhask_dynamic_tasks")
-                .and(contains("dynamic=( ${(f)\"$(__rhask_dynamic_tasks \"$cur\")\"} )"))
+                .and(contains(
+                    "dynamic=( ${(f)\"$(__rhask_dynamic_tasks \"$cur\")\"} )",
+                ))
                 .and(contains("compstate[insert]=''"))
-                .and(contains("_describe -t rhask-tasks 'task or group' described"))
+                .and(contains(
+                    "_describe -t rhask-tasks 'task or group' described",
+                ))
                 .and(contains("compdef _rhask rhask")),
         );
 }
