@@ -18,6 +18,7 @@ path = "src/main.rs"
 [dependencies]
 rhai = "1.23"
 clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
 indexmap = "2"
 log = "0.4"
 env_logger = "0.11"

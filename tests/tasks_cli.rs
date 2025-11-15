@@ -585,6 +585,49 @@ fn trigger_outside_actions_fails_on_load() {
 }
 
 #[test]
+fn complete_tasks_lists_candidates() {
+    rhask()
+        .args(["--file", FIXTURE, "complete-tasks", "build"])
+        .assert()
+        .success()
+        .stdout(contains("build_suite").and(contains("build_suite.release_flow")));
+}
+
+#[test]
+fn generate_completions_outputs_script() {
+    rhask()
+        .args(["completions", "bash"])
+        .assert()
+        .success()
+        .stdout(contains("complete -F").and(contains("rhask")));
+}
+
+#[test]
+fn generate_zsh_completions_include_dynamic_tasks() {
+    rhask()
+        .args(["completions", "zsh"])
+        .assert()
+        .success()
+        .stdout(
+            contains("__rhask_dynamic_tasks")
+                .and(contains("compadd -a dynamic"))
+                .and(contains("compdef _rhask rhask")),
+        );
+}
+
+#[test]
+fn generate_fish_completions_include_dynamic_tasks() {
+    rhask()
+        .args(["completions", "fish"])
+        .assert()
+        .success()
+        .stdout(
+            contains("__fish_rhask_task_candidates")
+                .and(contains("__fish_rhask_should_complete_tasks_run")),
+        );
+}
+
+#[test]
 fn dir_defined_twice_in_same_task_fails_on_load() {
     rhask()
         .args(["--file", INVALID_DIR, "list"])

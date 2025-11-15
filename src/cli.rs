@@ -1,11 +1,13 @@
 use clap::{Args, Parser, Subcommand};
+use clap_complete::Shell;
 
 #[derive(Parser, Debug)]
 #[command(
     name = "rhask",
     version = env!("CARGO_PKG_VERSION"),
     about = env!("CARGO_PKG_DESCRIPTION"),
-    long_about = None
+    long_about = None,
+    disable_help_subcommand = true
 )]
 pub struct Cli {
     /// Path to the Rhai script file (defaults to searching for rhaskfile.rhai)
@@ -22,6 +24,11 @@ pub enum Commands {
     List(ListOptions),
     /// Run a task (`rhask run -h` for details)
     Run(RunOptions),
+    /// Generate shell completion scripts
+    Completions(CompletionCommand),
+    /// Internal helper for shell completions
+    #[command(name = "complete-tasks", hide = true)]
+    CompleteTasks(CompleteTasksCommand),
     /// Execute a task directly (shorthand for `rhask run <task>`)
     #[command(external_subcommand)]
     Direct(Vec<String>),
@@ -48,6 +55,20 @@ pub struct RunOptions {
     /// Arguments passed to the task
     #[arg(name = "ARGS", allow_hyphen_values = true)]
     pub args: Vec<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct CompletionCommand {
+    /// Shell to generate completions for (bash, zsh, fish, ...)
+    #[arg(value_enum)]
+    pub shell: Shell,
+}
+
+#[derive(Args, Debug)]
+pub struct CompleteTasksCommand {
+    /// Optional prefix used to filter task/group names
+    #[arg(name = "PREFIX")]
+    pub prefix: Option<String>,
 }
 
 pub fn parse_args() -> Cli {
@@ -133,6 +154,26 @@ mod tests {
                 );
             }
             other => panic!("expected direct command, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_completions_command() {
+        let cli = parse_from(["rhask", "completions", "bash"]);
+        match cli.cmd.expect("completions command") {
+            Commands::Completions(opts) => assert_eq!(opts.shell, Shell::Bash),
+            other => panic!("expected completions command, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_complete_tasks_command() {
+        let cli = parse_from(["rhask", "complete-tasks", "buil"]);
+        match cli.cmd.expect("complete tasks command") {
+            Commands::CompleteTasks(opts) => {
+                assert_eq!(opts.prefix.as_deref(), Some("buil"));
+            }
+            other => panic!("expected complete tasks command, got {:?}", other),
         }
     }
 }

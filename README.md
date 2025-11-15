@@ -52,6 +52,7 @@ rhask run <task>
 | `rhask run <task> [args…]` | Execute a task. Supports both short names and fully qualified names; ambiguous leaves print candidate paths and abort. You can omit `run` and type `rhask <task>` as shorthand. |
 | `rhask -f <file> …` | Explicitly load a Rhai script. Place `-f/--file` before the subcommand or task name (e.g. `rhask -f ./demo.rhai list`, `rhask -f ./demo.rhai run build`, `rhask -f ./demo.rhai build`). |
 | `rhask` (no arguments) | Runs the task defined via `default_task("...")`. When no default task is configured it behaves like `rhask list`. |
+| `rhask completions <shell>` | Generate Bash/Zsh/Fish completion scripts (see instructions below). |
 
 ### Passing Arguments
 
@@ -120,6 +121,19 @@ task("coverage", || {
     });
 });
 ```
+
+---
+
+## Shell Completions
+
+Generate completion scripts via `rhask completions <shell>` and source them from your shell configuration:
+
+```bash
+rhask completions bash > ~/.local/share/bash-completion/rhask
+source ~/.local/share/bash-completion/rhask
+```
+
+Do the same for Zsh/Fish by placing the generated file under each shell’s completion directory. The completion script covers both CLI subcommands/options and dynamically defined tasks/groups. If you pass `-f/--file` to point Rhask at another `rhaskfile`, the completion function forwards that value so `TAB` still offers candidates from the correct script.
 
 ---
 
