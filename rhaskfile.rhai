@@ -6,99 +6,91 @@ task("fzf", || {
         group: ""
     });
     actions(|group| {
-        let list_cmd = if group.is_empty() {
-            "rhask list -F".to_string()
+        let pipeline = if group.is_empty() {
+            cmd(["rhask", "list", "-F"])
         } else {
-            "rhask list -F ".to_string() + group
+            cmd(["rhask", "list", "-F", group])
         };
         exec(
-            list_cmd + " | fzf | awk '{print $1}' | xargs -r rhask run"
+            pipeline.pipe(cmd(["fzf"]))
+                .pipe(cmd(["awk", "{print $1}"]))
+                .pipe(cmd(["xargs", "-r", "rhask", "run"]))
+                .build()
         );
     });
 });
 
-group("build_suite", || {
-    description("Collection of build-related tasks");
+task("dev", || {
+    description("Execute common development tasks. arg: fmt, test, clippy, build (default: all)");
+
+    args(#{cmd: ""});
+    actions(|cmd_value| {
+        let allowed = ["fmt", "test", "clippy", "build"];
+        let cmds = if cmd_value.is_empty() {
+            allowed
+        } else {
+            if allowed.contains(cmd_value){
+                [cmd_value]
+            } else {
+                throw("Unknown command: " + cmd_value);
+            };
+        };
+        for item in cmds {
+            print("Running cargo " + item + "...");
+            exec(cmd(["cargo", item]).build());
+            print("cargo " + item + " finished");
+        };
+        print("Development task collection finished");
+    });
+});
+
+group("caverge", || {
+    description("Code coverage tasks");
+
+    let list = ["all", "unit", "integration"];
+    for opt in list {
+        let mode = opt;
+        task(mode, || {
+            description("Run coverage mode: " + mode);
+
+            dir("./scripts");
+            actions(|| {
+                print("Running coverage with option: " + mode + "...");
+                exec_stream(cmd(["./coverage.sh", "--mode", mode]).build());
+                print("Coverage task finished");
+            });
+        });
+    };
+});
+
+group("git", || {
+    description("Helpers for pruning remote-tracking branches");
+
+    task("preview", || {
+        description("Show branches tracked as gone (no deletion)");
+        actions(|| {
+            exec(cmd(["git", "fetch", "--prune"]).build());
+            exec(
+                cmd(["git", "branch", "-vv"])
+                    .pipe(cmd(["grep", "gone]"]))
+                    .build()
+            );
+        });
+    });
 
     task("clean", || {
-        description("Remove build artifacts");
-        actions( || {
-            exec("cargo clean");
-            print("Cleanup completed");
-        });
-    });
-
-    task("build", || {
-        description("Build the project");
-        actions( || {
-            exec("cargo build");
-            print("Build finished");
-        });
-    });
-
-    task("test", || {
-        description("Run tests");
-        actions( || {
-            exec("cargo test");
-            print("Tests completed");
-        });
-    });
-
-    task("fmt", || {
-        description("Run rustfmt");
-        actions( || {
-            exec("cargo fmt");
-            print("Formatting completed");
-        });
-    });
-
-    task("clippy", || {
-        description("Run clippy");
-        actions( || {
-            exec("cargo clippy");
-            print("linting completed");
-        });
-    });
-
-    task("dev", || {
-        description("Execute common development tasks");
-        actions( || {
-            trigger("fmt");
-            trigger("test");
-            trigger("clippy");
-            trigger("build");
-            print("Development task collection finished");
+        description("Delete local branches whose upstream is gone");
+        actions(|| {
+            exec(cmd(["git", "fetch", "--prune"]).build());
+            exec(
+                cmd(["git", "branch", "-vv"])
+                    .pipe(cmd(["grep", "gone]"]))
+                    .pipe(cmd(["awk", "{print $1}"]))
+                    .pipe(cmd(["xargs", "git", "branch", "-D"]))
+                    .build()
+            );
         });
     });
 });
 
-group("coverage", || {
-    description("Coverage measurement helpers");
-
-    task("all", || {
-        description("Run coverage for unit + integration tests");
-        dir("./scripts");
-        actions(|| {
-            exec("./coverage.sh --mode all");
-        });
-    });
-
-    task("unit", || {
-        description("Run coverage for unit tests only");
-        dir("./scripts");
-        actions(|| {
-            exec("./coverage.sh --mode unit");
-        });
-    });
-
-    task("integration", || {
-        description("Run coverage for integration tests only");
-        dir("./scripts");
-        actions(|| {
-            exec("./coverage.sh --mode integration");
-        });
-    });
-});
-
-import "rhaskfile_demo";
 import "rhaskfile_sample";

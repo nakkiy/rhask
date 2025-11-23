@@ -22,6 +22,7 @@ clap_complete = "4"
 indexmap = "2"
 log = "0.4"
 env_logger = "0.11"
+rhai-process = "0.1"
 
 [dev-dependencies]
 assert_cmd = "2.0"

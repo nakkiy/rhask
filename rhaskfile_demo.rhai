@@ -8,9 +8,9 @@ group("greet", || {
         });
     });
     task("rhai", || {
-        description("Say hello to Rhai with exec");
+        description("Say hello to Rhai via an external command");
         actions(|| {
-            exec("echo 'Hello, Rhai!'");
+            exec(cmd(["echo", "Hello, Rhai!"]).build());
         });
     });
     task("all", || {
