@@ -178,10 +178,10 @@ group("release_flow", || {
 
 | Function | Description |
 | --- | --- |
-| `task(name, || { ... })` | Declare a task; call `description`/`actions`/`args` inside it. |
-| `group(name, || { ... })` | Declare a group; nest additional groups or tasks. |
+| `task(name, \|\| { ... })` | Declare a task; call `description`/`actions`/`args` inside it. |
+| `group(name, \|\| { ... })` | Declare a group; nest additional groups or tasks. |
 | `description(text)` | Usable inside `task()`/`group()`; sets the label shown in listings (call once per task). |
-| `actions(|| { ... })` | Usable inside `task()`; registers the executable closure (call once). Invoke `trigger()` or `exec(...)` from here. |
+| `actions(\|\| { ... })` | Usable inside `task()`; registers the executable closure (call once). Invoke `trigger()` or `exec(...)` from here. |
 | `args(#{ key1: default1, key2: (), ... })` | Usable inside `task()`; declares CLI parameters. `()` = no default = required. Call once per task. |
 | `dir(path)` | Usable inside `task()`; pins the working directory (call once). Relative paths resolve from the rhaskfile directory; absolute paths stay as-is. Invalid paths error at load time. |
 | `default_task("full.path")` | Declare once at the top level (imports included) to define the fallback when `rhask` is run without arguments. |
