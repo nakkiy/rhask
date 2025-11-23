@@ -559,7 +559,7 @@ dependencies = [
 
 [[package]]
 name = "rhask"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "assert_cmd",
  "clap",
