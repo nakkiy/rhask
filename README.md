@@ -1,6 +1,6 @@
 # Rhask – Rhai-based Task Runner
 
-Rhask is a lightweight task runner that lets you describe tasks in [Rhai](https://rhai.rs/) and execute them from a Rust CLI. Tasks and groups can be nested freely, and every entry can be invoked by its fully qualified name such as `group.task`. When a leaf name is unique, you can also call it without the prefix.
+Rhask is a lightweight task runner written in Rust. Tasks and groups are authored in [Rhai](https://rhai.rs/), can be nested arbitrarily, and are invoked through fully qualified names such as `group.task` (or by short names when they are unique).
 
 ![demo](./demo.png)
 
@@ -12,33 +12,114 @@ Rhask is a lightweight task runner that lets you describe tasks in [Rhai](https:
 # Install from crates.io
 cargo install rhask
 
-# Example: list tasks at the project root
+# List tasks at the project root
 rhask list
 
-# Example: run a task
+# Run a task
 rhask run <task>
 ```
 
-- Place `rhaskfile.rhai` at your repository root (copy `rhaskfile_demo.rhai` or `rhaskfile_sample.rhai` to get started).
-- To try the demo without touching your root, run `rhask -f ./rhaskfile_demo.rhai list`.
-- You can skip the `run` subcommand and execute tasks as `rhask <task>`; it behaves exactly like `rhask run <task>`.
-- Declare `default_task("group.task")` at the top level (or inside imported files) to automatically run that task when `rhask` is invoked without additional arguments. If `default_task` is not set, `rhask` with no arguments falls back to listing tasks.
+Example `rhaskfile.rhai`:
+
+```rhai
+task("hello", || {
+    actions(|| {
+        print("Hello from Rhask!");
+    });
+});
+```
+
+- Place `rhaskfile.rhai` at the repository root (copy `rhaskfile_demo.rhai` or `rhaskfile_sample.rhai` to get started).
+- Use `-f/--file` to point Rhask at any Rhai script, e.g. `rhask -f ./rhaskfile_demo.rhai list`.
+- `rhask run <task>` and `rhask <task>` behave the same; ambiguous short names print the candidates.
+- Declare `default_task("group.task")` so `rhask` (with no arguments) runs that entry, otherwise it falls back to listing tasks.
 
 ---
 
 ## Features
 
-- Task definitions live in `rhaskfile.rhai` at the repository root.
-- At startup Rhask searches the current directory and walks up parent directories until it finds `rhaskfile.rhai` (override with `-f` / `--file`).
-- `rhask list` renders tasks and groups as a tree.
-- `rhask list --flat` (or `-F`) prints each task as `full.path` followed by a space-aligned description (colorized on TTY), which is convenient for piping into `fzf`, `peco`, etc.
-- `rhask run` (or the shorthand `rhask <task>`) accepts both short names and fully qualified names. When a name is ambiguous, Rhask prints the candidates and asks you to re-run with a full path.
-- Use `description()`, `actions()`, and `args()` inside `task()` or `group()` blocks to declare metadata, logic, and parameters.
-- Arguments support positional values, `key=value`, `--key=value`, and `--key value` styles. Defaults and required flags are declared via `args(#{ ... })`.
-- `default_task("group.task")` (callable from the root file or any imported file) lets you define what happens when `rhask` is executed with no explicit subcommand; it runs the configured task or falls back to `rhask list` when unset.
-- `dir("path")` (callable once per task) pins the working directory for **that** task only. Relative paths are resolved from the directory that hosts `rhaskfile.rhai`, while absolute paths are honored as-is. External commands (`exec(cmd([...]).build())`) respect the task’s directory; triggered tasks run in their own `dir()` (or, if unset, the shell’s launch directory).
-- `cmd(["cmd", "arg", ...])` / `.pipe()` lets you describe structured pipelines without shell-specific syntax. You can attach `.env()` or `.allow_exit_codes()` settings, stream output via `.run_stream()`, and execute them safely via `exec()` / `exec_stream()` so failures propagate like ordinary Rhai errors.
-- Logging is powered by `env_logger`. Regular runs stay quiet, while `RUST_LOG=debug rhask run …` surfaces the internal trace.
+### 1. File loading & project root discovery
+- The configuration file is **`rhaskfile.rhai`**.
+- Rhask searches the current directory and walks up the parents, loading **only the first file it finds**.
+- Override the search path with `-f` / `--file` to load any other Rhai script.
+
+---
+
+### 2. Declaring and managing tasks/groups
+- Use `task("name", || { ... })` / `group("name", || { ... })` to build nested hierarchies.
+- Nest as deeply as you like; there is no limit on groups or tasks.
+- Execute entries via fully qualified names such as `group.subgroup.task`.
+- When a short name is unique you can omit the prefix; conflicts print a candidate list and require a fully qualified retry.
+
+---
+
+### 3. Listing tasks (tree vs. flat)
+- You can scope the listing to a subtree (e.g. `rhask list deploy -F`).
+
+#### Tree view
+`rhask list`
+- Shows the hierarchy as an indented tree.
+- `description()` text is aligned on the right-hand side.
+
+#### Flat view
+`rhask list --flat` / `rhask list -F`
+- Prints each task as `full.path  description` on a single line (colorized on TTYs).
+
+---
+
+### 4. Execution rules (run / default tasks / ambiguity)
+- Execute tasks via `rhask run <task>` or the shorthand `rhask <task>`.
+- Running bare `rhask` behaves as follows:
+  - Execute the task registered via `default_task("...")` when present.
+  - Otherwise fall back to `rhask list`.
+- Ambiguous `<task>` names **print candidates and exit** (Rhask will not guess). Re-run with the full path.
+- `args(#{ key: default, ... })` declares CLI parameters; `()` marks them as required.
+  - CLI values may be passed as positional arguments, `key=value`, `--key=value`, or `--key value`, and you can mix the styles.
+
+---
+
+### 5. Working directories with `dir()`
+- Call `dir("path")` **once per task** to pin its working directory.
+- Relative paths are resolved from the directory that hosts `rhaskfile.rhai`; absolute paths are left unchanged.
+- Paths are validated at load time—nonexistent or non-directory paths raise an error.
+- When a task `trigger()`s another task, the callee’s own `dir()` always wins; parent settings are never inherited.
+- Without `dir()` the task runs in the shell directory where you launched `rhask`.
+
+---
+
+### 6. Shell-free external commands (`cmd` / `pipe` / `exec`)
+
+#### 1. `cmd()`
+```rhai
+cmd(["git", "status"])
+```
+- Describes a command as an array, avoiding shell quoting issues.
+
+#### 2. `pipe()`
+```rhai
+cmd(["git", "branch", "-vv"])
+    .pipe(cmd(["grep", "gone"]))
+```
+- Chains any number of stages; each becomes a native process.
+- Lets you express `git | grep | awk`-style flows without shell syntax.
+
+#### 3. `build()`
+- Finalizes the pipeline before execution.
+- Tweak behavior via `.timeout(ms)`, `.env(#{})`, `.allow_exit_codes([0, 1])`, and similar helpers.
+
+#### 4. `exec()`
+- Mirrors stdout/stderr to the console and returns `#{ success, status, stdout, stderr, duration_ms }`.
+- Throws when the exit code is not allowed.
+
+#### 5. `exec_stream()`
+- Streaming-friendly variant that lets you process stdout/stderr via callbacks (omit them to stream directly to the terminal).
+
+---
+
+### 7. Other utilities
+- `rhask completions <shell>` generates Bash/Zsh/Fish completion scripts (task names included).
+- The repo bundles `scripts/coverage.sh` as a helper around `cargo llvm-cov`.
+- Rhai `import` statements work as in upstream Rhai, so you can split large task files as needed.
 
 ---
 
@@ -48,24 +129,24 @@ rhask run <task>
 
 | Command | Description |
 | --- | --- |
-| `rhask list [group]` | Display tasks/groups as a tree. Passing `group` limits the output to that subtree; use fully qualified names like `deploy.staging` for nested groups. |
-| `rhask list --flat` / `rhask list -F` | Emit each task as `full.path` followed by a space-aligned description (colorized on TTY). Works with `group` filters and is ideal for piping into tools such as `fzf`. |
-| `rhask run <task> [args…]` | Execute a task. Supports both short names and fully qualified names; ambiguous leaves print candidate paths and abort. You can omit `run` and type `rhask <task>` as shorthand. |
-| `rhask -f <file> …` | Explicitly load a Rhai script. Place `-f/--file` before the subcommand or task name (e.g. `rhask -f ./demo.rhai list`, `rhask -f ./demo.rhai run build`, `rhask -f ./demo.rhai build`). |
-| `rhask` (no arguments) | Runs the task defined via `default_task("...")`. When no default task is configured it behaves like `rhask list`. |
-| `rhask completions <shell>` | Generate Bash/Zsh/Fish completion scripts (see instructions below). |
+| `rhask list [group]` | Display registered tasks/groups as a tree. Passing a fully qualified name limits the output to that subtree. |
+| `rhask list --flat` / `rhask list -F` | Print each task as `full.path` plus an aligned description (colorized on TTYs, works with `group` filters and tools like `fzf`). |
+| `rhask run <task> [args…]` | Execute a task. Ambiguous leaves print the candidates and ask you to re-run with a full path. The shorthand `rhask <task>` behaves the same. |
+| `rhask -f <file> …` | Explicitly load a Rhai script. Place `-f/--file` before the subcommand or task name (e.g. `rhask -f ./demo.rhai list`). |
+| `rhask` (no arguments) | Run the configured `default_task()` or fall back to `rhask list` when unset. |
+| `rhask completions <shell>` | Emit shell completion scripts (see below). |
 
 ### Passing Arguments
 
-Declare parameters in Rhai, e.g. `args(#{ target: (), profile: "debug" })`. Positional arguments follow the lexicographic order of the keys (this example maps to `profile` → `target`). `()` means “no default = required”. Favor named forms when order matters, and supply values from the CLI using:
+Declaring `args(#{ target: (), profile: "debug" })` assigns positional arguments in lexicographic key order (`profile` → `target` in this example). `()` marks required parameters. Use whichever CLI style you prefer:
 
-- Positional (key order): `rhask run build release x86_64-unknown-linux-gnu`
-- `key=value`: `rhask run build profile=release`
+- Positional: `rhask run build release x86_64-unknown-linux-gnu`
+- `key=value`: `rhask run build profile=release target=x86_64-unknown-linux-gnu`
 - `--key=value`: `rhask run build --target=x86_64-apple-darwin`
 - `--key value`: `rhask run build --target wasm32-unknown-unknown`
-- Any mixture of the above
+- Mix and match as needed
 
-Unknown keys raise an error. Parameters marked as required (`()`) must be provided or the run fails with a descriptive message.
+Unknown keys raise an error, and missing required values trigger a descriptive failure.
 
 ---
 
@@ -93,28 +174,28 @@ group("release_flow", || {
 });
 ```
 
-### Rhai Helpers
+### Helpers Available from Rhai
 
-| Helper | Description |
+| Function | Description |
 | --- | --- |
-| `task(name, \|\| { ... })` | Declare a task and call `description` / `actions` / `args` inside it. |
-| `group(name, \|\| { ... })` | Declare a group that can contain tasks or nested sub-groups. |
-| `description(text)` | Attach a description to the current task or group (tasks may call it only once). |
-| `actions(\|\| { ... })` | Register the execution closure for a task (only valid inside `task()` and callable once per task). `trigger()` and helpers such as `exec(cmd([...]).build())` belong inside this closure. |
-| `args(#{ key1: default1, key2: (), ... })` | Declare CLI parameters for the surrounding task (only valid inside `task()`). `()` signals “no default = required”. Each task may call this helper only once. |
-| `dir(path)` | Only valid inside `task()`. Each task may call it at most once. Paths resolve from the directory that contains `rhaskfile.rhai` (unless they start with `/`, in which case they are treated as absolute). Missing or non-directory paths fail during script load. |
-| `default_task("full.path")` | Call once at the top level (root file or imported files). When `rhask` runs without subcommands it executes this task; otherwise it falls back to listing tasks. |
-| `trigger(name, positional?, named?)` | Reuse another task. Provide arrays/maps for positional/named arguments. Triggered tasks run within their own `dir()` (if any); parent settings are not inherited. |
-| `cmd([cmd, arg, ...])` | Build a structured command/pipeline by chaining `.pipe()` / `.env()` etc., then execute it with `exec(...)` or `exec_stream(...)`. Both helpers return a map (`#{ success, status, stdout, stderr, duration_ms }`). |
-| `exec(pipeline)` / `exec_stream(pipeline, stdout_cb?, stderr_cb?)` | Only valid inside `actions()`. Execute a pipeline constructed via `cmd(...).pipe(...).build()`. `exec` mirrors the command’s output to the console and returns the result map (throwing on failure), while `exec_stream` lets you process stdout/stderr in real time. |
+| `task(name, || { ... })` | Declare a task; call `description`/`actions`/`args` inside it. |
+| `group(name, || { ... })` | Declare a group; nest additional groups or tasks. |
+| `description(text)` | Usable inside `task()`/`group()`; sets the label shown in listings (call once per task). |
+| `actions(|| { ... })` | Usable inside `task()`; registers the executable closure (call once). Invoke `trigger()` or `exec(...)` from here. |
+| `args(#{ key1: default1, key2: (), ... })` | Usable inside `task()`; declares CLI parameters. `()` = no default = required. Call once per task. |
+| `dir(path)` | Usable inside `task()`; pins the working directory (call once). Relative paths resolve from the rhaskfile directory; absolute paths stay as-is. Invalid paths error at load time. |
+| `default_task("full.path")` | Declare once at the top level (imports included) to define the fallback when `rhask` is run without arguments. |
+| `trigger(name, positional?, named?)` | Usable inside `actions()`; runs another task. Accepts positional arrays and/or named maps. The callee’s `dir()` takes precedence over the caller’s. |
+| `cmd([cmd, arg, ...])` | Build external commands inside `actions()`. Chain `.env()` / `.pipe()` and finish with `.build()` before running `exec(...)` or `exec_stream(...)`. |
+| `exec(pipeline)` / `exec_stream(pipeline, stdout_cb?, stderr_cb?)` | Usable inside `actions()`; execute pipelines and receive `#{ success, status, stdout, stderr, duration_ms }`. `exec_stream` lets you process output live. |
 
 #### Pinning the working directory with `dir()`
 
-- Call `dir(path)` once inside each `task()` to lock the working directory for external commands and triggered tasks. Paths starting with `/` are treated as absolute; all other paths are resolved relative to the directory that contains `rhaskfile.rhai` (or the script passed via `-f/--file`) and canonicalized into an absolute path.
-- Rhask validates the path when the script is loaded. Missing files or non-directory targets abort with an error such as `dir(): '...' is not a directory.`.
-- When `dir()` is set, Rhask changes the process directory before running `actions()`. Every `exec(cmd([...]).build())` call and every triggered task runs from its own declared directory; parent settings are never inherited.
-- Tasks without `dir()` continue to run inside the shell’s current working directory—the same behavior Rhask used before this helper existed. Use `dir(".")` or `dir("scripts")` to make the intent explicit.
-- Relative paths always resolve against the directory that hosted the **first** `rhaskfile` you loaded (typically the root file passed to `-f/--file`). If you import a script from that root but later execute the same script standalone via `rhask -f child/file.rhai`, the base directory changes and existing `dir("relative/path")` entries may point somewhere else. Keep this limitation in mind when sharing scripts between standalone and imported use cases.
+- `dir(path)` is allowed once per `task()`. Absolute paths remain untouched; relative paths are resolved against the directory that hosts the loaded rhaskfile (the one Rhask found or the file passed via `-f/--file`).
+- Nonexistent paths or non-directories abort loading with errors such as `dir(): '...' is not a directory.`
+- When `dir()` is present, Rhask `chdir`s into that location before executing `actions()`. Nested `exec()`/`trigger()` calls always honor the callee’s `dir()` rather than inheriting from parents.
+- Tasks without `dir()` run in the shell directory from which you launched `rhask`. Set `dir(".")` or `dir("scripts")` explicitly if you need predictability.
+- The resolution root is always the directory of the initially loaded rhaskfile. If you run a child script directly via `rhask -f child/file.rhai`, relative paths will resolve from that child file instead, so plan accordingly.
 
 ```rhai
 task("coverage", || {
@@ -129,65 +210,64 @@ task("coverage", || {
 #### Running external commands (`cmd` / `exec` / `exec_stream`)
 
 1. **Describe the pipeline**  
-   Use `cmd([program, arg, ...])` with one or more strings, chain `.pipe(cmd([...]))` for additional stages, and optionally hang `.env(#{ KEY: "VALUE" })`. Call `.build()` once the pipeline is ready, then tweak the executor with `.timeout(ms)` / `.allow_exit_codes([...])` as needed.
+   Build it with `cmd([program, arg, ...])`, chain `.pipe(cmd([...]))`, override the environment via `.env(#{ KEY: "VALUE" })`, and call `.build()`. After `build()` you can still attach `.timeout(ms)` or `.allow_exit_codes([0, 1])`.
+2. **Execute it**  
+   - `exec(cmd(...).pipe(...).build())` returns `#{ success, status, stdout, stderr, duration_ms }`, mirrors stdout/stderr to the terminal, and throws on disallowed exit codes.
+   - `exec_stream(cmd(...).build(), stdout_cb?, stderr_cb?)` suits streaming workloads. Omit the callbacks to stream directly to the console.
+3. **Run inside `actions()`**  
+   Pipelines can be assembled anywhere, but actually executing them is restricted to `actions()` so `dir()` semantics and nested `trigger()` calls stay consistent.
 
-2. **Execute it safely**  
-   - `exec(cmd(...).pipe(...).build())` mirrors stdout/stderr to the terminal and returns `#{ success, status, stdout, stderr, duration_ms }`. Non-zero exits (unless explicitly allowed) trigger a `throw`, so your task stops immediately.
-   - `exec_stream(executor, stdout_cb?, stderr_cb?)` is the streaming variant. Omit the callbacks to show the output directly; the returned map will contain empty `stdout`/`stderr`.
+```rhai
+actions(|| {
+    let pipeline = cmd(["git", "branch", "-vv"])
+        .pipe(cmd(["grep", "gone]"]))
+        .pipe(cmd(["awk", "{print $1}"]))
+        .build();
 
-3. **Run it inside `actions()`**  
-   Pipelines can be assembled anywhere, but “firing” them via `exec()` / `exec_stream()` is only allowed inside `actions()`, which keeps `dir()` semantics intact.
-   ```rhai
-   actions(|| {
-       let pipeline = cmd(["git", "branch", "-vv"])
-           .pipe(cmd(["grep", "gone]"]))
-           .pipe(cmd(["awk", "{print $1}"]))
-           .build();
-
-       let result = exec(pipeline);
-       print("deleted branches:\n" + result.stdout);
-   });
-   ```
+    let result = exec(pipeline);
+    print("deleted branches:\n" + result.stdout);
+});
+```
 
 ---
 
 ## Shell Completions
 
-Generate completion scripts via `rhask completions <shell>` and source them from your shell configuration:
-
 ```bash
 rhask completions bash > ~/.local/share/bash-completion/rhask
-source ~/.local/share/bash-completion/rhask
+echo "source ~/.local/share/bash-completion/rhask" >> ~/.bashrc
 ```
 
-Do the same for Zsh/Fish by placing the generated file under each shell’s completion directory. The completion script covers both CLI subcommands/options and dynamically defined tasks/groups. If you pass `-f/--file` to point Rhask at another `rhaskfile`, the completion function forwards that value so `TAB` still offers candidates from the correct script.
+Drop the generated file into the appropriate completion directory (Bash/Zsh/Fish) and source it. Task/group names defined in Rhai are part of the completion results. When you pass `-f/--file`, the completion function forwards that value so suggestions always match the referenced rhaskfile.
 
 ---
 
 ## Logs & Output
 
-- User-facing messages are separated: informational lines go to `stdout`, warnings/errors to `stderr`.
-- Logging relies on `env_logger`. Set `RUST_LOG=debug rhask run …` (or `trace`, etc.) when you need troubleshooting details.
-- Color output is automatically enabled when stdout is a TTY and disabled for non-TTY contexts such as CI pipelines.
+- User-facing information goes to `stdout`; warnings and errors go to `stderr`.
+- Enable tracing with `RUST_LOG=debug rhask run …` (or `trace`) thanks to the `env_logger` backend.
+- Calls such as `trigger()` or `exec(cmd([...]).build())` must happen inside `actions()`; doing so elsewhere raises errors.
+- Color output is enabled automatically on TTYs and disabled for redirected/CI environments.
 
 ---
 
 ## Coverage
 
-Rhask ships with a helper script for measuring code coverage. It installs `cargo-llvm-cov` / `llvm-tools-preview` on demand (requires `rustup`).
+`scripts/coverage.sh` wraps `cargo-llvm-cov` / `llvm-tools-preview`, installing the tools on demand (requires `rustup`).
 
-- `./scripts/coverage.sh --mode all` (default)  
-  Runs unit + integration tests and writes `target/coverage/html/index.html`.
-- `./scripts/coverage.sh --mode unit`  
-  Runs unit tests only and writes `target/coverage-unit/html/index.html`.
-- `./scripts/coverage.sh --mode integration`  
-  Runs `tests/*.rs` only and writes `target/coverage-integration/html/index.html`.
+- `./scripts/coverage.sh --mode all` (default):  
+  run unit + integration tests and write `target/coverage/html/index.html`.
+- `./scripts/coverage.sh --mode unit`:  
+  run unit tests only and write `target/coverage-unit/html/index.html`.
+- `./scripts/coverage.sh --mode integration`:  
+  run `tests/*.rs` only and write `target/coverage-integration/html/index.html`.
 
-Pass `-- <extra flags>` if you need to forward arguments directly to `cargo llvm-cov` (for example `-- --lcov --output-path lcov.info`). This script is safe to call from CI workflows as well.
+Arguments after `--` are forwarded directly to `cargo llvm-cov`. Use the same script from CI as well.
 
 ---
 
 ## License
 
-Dual-licensed under MIT OR Apache-2.0.  
-See `LICENSE-MIT` and `LICENSE-APACHE` for details.
+Dual-licensed under MIT OR Apache-2.0.
+
+---
