@@ -36,7 +36,8 @@ rhask run <task>
 - Use `description()`, `actions()`, and `args()` inside `task()` or `group()` blocks to declare metadata, logic, and parameters.
 - Arguments support positional values, `key=value`, `--key=value`, and `--key value` styles. Defaults and required flags are declared via `args(#{ ... })`.
 - `default_task("group.task")` (callable from the root file or any imported file) lets you define what happens when `rhask` is executed with no explicit subcommand; it runs the configured task or falls back to `rhask list` when unset.
-- `dir("path")` (callable once per task) pins the working directory for that task. Relative paths are resolved from the directory that hosts `rhaskfile.rhai`, while absolute paths are honored as-is. Both `exec()` and triggered tasks respect this setting so commands always run from the intended location.
+- `dir("path")` (callable once per task) pins the working directory for **that** task only. Relative paths are resolved from the directory that hosts `rhaskfile.rhai`, while absolute paths are honored as-is. External commands (`exec(cmd([...]).build())`) respect the task’s directory; triggered tasks run in their own `dir()` (or, if unset, the shell’s launch directory).
+- `cmd(["cmd", "arg", ...])` / `.pipe()` lets you describe structured pipelines without shell-specific syntax. You can attach `.env()` or `.allow_exit_codes()` settings, stream output via `.run_stream()`, and execute them safely via `exec()` / `exec_stream()` so failures propagate like ordinary Rhai errors.
 - Logging is powered by `env_logger`. Regular runs stay quiet, while `RUST_LOG=debug rhask run …` surfaces the internal trace.
 
 ---
@@ -85,7 +86,9 @@ task("build", || {
 group("release_flow", || {
     description("Release tasks");
     task("package", || {
-        actions(|| { exec("cargo package"); });
+        actions(|| {
+            exec(cmd(["cargo", "package"]).build());
+        });
     });
 });
 ```
@@ -97,18 +100,19 @@ group("release_flow", || {
 | `task(name, \|\| { ... })` | Declare a task and call `description` / `actions` / `args` inside it. |
 | `group(name, \|\| { ... })` | Declare a group that can contain tasks or nested sub-groups. |
 | `description(text)` | Attach a description to the current task or group (tasks may call it only once). |
-| `actions(\|\| { ... })` | Register the execution closure for a task (only valid inside `task()` and callable once per task). `trigger` / `exec` may only be called inside this closure. |
+| `actions(\|\| { ... })` | Register the execution closure for a task (only valid inside `task()` and callable once per task). `trigger()` and helpers such as `exec(cmd([...]).build())` belong inside this closure. |
 | `args(#{ key1: default1, key2: (), ... })` | Declare CLI parameters for the surrounding task (only valid inside `task()`). `()` signals “no default = required”. Each task may call this helper only once. |
 | `dir(path)` | Only valid inside `task()`. Each task may call it at most once. Paths resolve from the directory that contains `rhaskfile.rhai` (unless they start with `/`, in which case they are treated as absolute). Missing or non-directory paths fail during script load. |
 | `default_task("full.path")` | Call once at the top level (root file or imported files). When `rhask` runs without subcommands it executes this task; otherwise it falls back to listing tasks. |
 | `trigger(name, positional?, named?)` | Reuse another task. Provide arrays/maps for positional/named arguments. Triggered tasks run within their own `dir()` (if any); parent settings are not inherited. |
-| `exec(command)` | Run an external command via the shell. Uses the task’s `dir()` if configured, otherwise the directory where `rhask` was launched. Returns `()` on success. |
+| `cmd([cmd, arg, ...])` | Build a structured command/pipeline by chaining `.pipe()` / `.env()` etc., then execute it with `exec(...)` or `exec_stream(...)`. Both helpers return a map (`#{ success, status, stdout, stderr, duration_ms }`). |
+| `exec(pipeline)` / `exec_stream(pipeline, stdout_cb?, stderr_cb?)` | Only valid inside `actions()`. Execute a pipeline constructed via `cmd(...).pipe(...).build()`. `exec` mirrors the command’s output to the console and returns the result map (throwing on failure), while `exec_stream` lets you process stdout/stderr in real time. |
 
 #### Pinning the working directory with `dir()`
 
-- Call `dir(path)` once inside each `task()` to lock the working directory for `exec()` and triggered tasks. Paths starting with `/` are treated as absolute; all other paths are resolved relative to the directory that contains `rhaskfile.rhai` (or the script passed via `-f/--file`) and canonicalized into an absolute path.
+- Call `dir(path)` once inside each `task()` to lock the working directory for external commands and triggered tasks. Paths starting with `/` are treated as absolute; all other paths are resolved relative to the directory that contains `rhaskfile.rhai` (or the script passed via `-f/--file`) and canonicalized into an absolute path.
 - Rhask validates the path when the script is loaded. Missing files or non-directory targets abort with an error such as `dir(): '...' is not a directory.`.
-- When `dir()` is set, `exec()` runs commands via `sh -c` after calling `Command::current_dir()`. Tasks reached via `trigger()` use their own `dir()` setting (if defined) and never inherit the caller’s directory.
+- When `dir()` is set, Rhask changes the process directory before running `actions()`. Every `exec(cmd([...]).build())` call and every triggered task runs from its own declared directory; parent settings are never inherited.
 - Tasks without `dir()` continue to run inside the shell’s current working directory—the same behavior Rhask used before this helper existed. Use `dir(".")` or `dir("scripts")` to make the intent explicit.
 - Relative paths always resolve against the directory that hosted the **first** `rhaskfile` you loaded (typically the root file passed to `-f/--file`). If you import a script from that root but later execute the same script standalone via `rhask -f child/file.rhai`, the base directory changes and existing `dir("relative/path")` entries may point somewhere else. Keep this limitation in mind when sharing scripts between standalone and imported use cases.
 
@@ -117,10 +121,33 @@ task("coverage", || {
     description("Run coverage helper script from scripts/");
     dir("scripts");
     actions(|| {
-        exec("./coverage.sh --mode unit");
+        exec(cmd(["./coverage.sh", "--mode", "unit"]).build());
     });
 });
 ```
+
+#### Running external commands (`cmd` / `exec` / `exec_stream`)
+
+1. **Describe the pipeline**  
+   Use `cmd([program, arg, ...])` with one or more strings, chain `.pipe(cmd([...]))` for additional stages, and optionally hang `.env(#{ KEY: "VALUE" })`. Call `.build()` once the pipeline is ready, then tweak the executor with `.timeout(ms)` / `.allow_exit_codes([...])` as needed.
+
+2. **Execute it safely**  
+   - `exec(cmd(...).pipe(...).build())` mirrors stdout/stderr to the terminal and returns `#{ success, status, stdout, stderr, duration_ms }`. Non-zero exits (unless explicitly allowed) trigger a `throw`, so your task stops immediately.
+   - `exec_stream(executor, stdout_cb?, stderr_cb?)` is the streaming variant. Omit the callbacks to show the output directly; the returned map will contain empty `stdout`/`stderr`.
+
+3. **Run it inside `actions()`**  
+   Pipelines can be assembled anywhere, but “firing” them via `exec()` / `exec_stream()` is only allowed inside `actions()`, which keeps `dir()` semantics intact.
+   ```rhai
+   actions(|| {
+       let pipeline = cmd(["git", "branch", "-vv"])
+           .pipe(cmd(["grep", "gone]"]))
+           .pipe(cmd(["awk", "{print $1}"]))
+           .build();
+
+       let result = exec(pipeline);
+       print("deleted branches:\n" + result.stdout);
+   });
+   ```
 
 ---
 

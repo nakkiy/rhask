@@ -6,7 +6,7 @@ group("sample", || {
             description("Task that always fails");
             actions(|| {
                 print("always_fail running...");
-                exec("false");
+                exec(cmd(["false"]).build());
             });
         });
 
@@ -35,6 +35,29 @@ group("sample", || {
                     print("always_fail failed but continuing");
                 }
                 trigger("sample.demo.echo_success");
+            });
+        });
+    });
+
+    group("docker", || {
+        task("up", || {
+            description("docker up");
+            actions(|| {
+                exec_stream(cmd(["docker", "run", "--rm", "-d", "--name", "demo", "alpine:3.20", "/bin/sh", "-c", "tail -f /dev/null"]).build());
+            });
+        });
+
+        task("connect", || {
+            description("docker connect");
+            actions(|| {
+                exec_stream(cmd(["docker", "exec", "-it", "demo", "/bin/sh"]).build());
+            });
+        });
+
+        task("stop", || {
+            description("docker stop");
+            actions(|| {
+                exec_stream(cmd(["docker", "stop", "demo"]).build());
             });
         });
     });

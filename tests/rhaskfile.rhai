@@ -72,7 +72,7 @@ task("exec_echo", || {
     description("Run echo through exec()");
     actions(|| {
         log_task("exec_echo", "spawning echo helper");
-        exec("echo fixture-exec-output");
+        exec(cmd(["echo", "fixture-exec-output"]).build());
     });
 });
 

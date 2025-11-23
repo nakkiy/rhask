@@ -1,4 +1,4 @@
-exec("echo should-not-run");
+exec(cmd(["echo", "should-not-run"]).build());
 
 task("noop", || {
     actions(|| {

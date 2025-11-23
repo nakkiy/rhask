@@ -1,9 +1,12 @@
 use assert_cmd::Command;
+use assert_cmd::cargo;
 use predicates::{
     prelude::PredicateBooleanExt,
     str::{contains, is_match},
 };
 use std::{fs, io::Write};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use tempfile::tempdir;
 
 const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/rhaskfile.rhai");
@@ -21,7 +24,7 @@ const INVALID_DIR: &str = concat!(
 );
 
 fn rhask() -> Command {
-    Command::cargo_bin("rhask").expect("rhask binary build failed")
+    cargo::cargo_bin_cmd!("rhask")
 }
 
 fn rhask_with_fixture() -> Command {
@@ -316,7 +319,7 @@ fn dir_exec_uses_rhaskfile_root_for_relative_paths() {
             task("write_pwd", || {{
                 dir("scripts");
                 actions(|| {{
-                    exec("pwd > cwd.txt");
+                    exec(cmd(["sh", "-c", "pwd > cwd.txt"]).build());
                 }});
             }});
         "#
@@ -343,6 +346,59 @@ fn dir_exec_uses_rhaskfile_root_for_relative_paths() {
     assert_eq!(contents.trim(), expected);
 }
 
+#[cfg(unix)]
+#[test]
+fn dir_supports_relative_executable_paths() {
+    let temp = tempdir().expect("create temp dir");
+    let root = temp.path();
+    let scripts = root.join("scripts");
+    fs::create_dir_all(&scripts).expect("create scripts dir");
+
+    let script_path = scripts.join("hello.sh");
+    let mut script = fs::File::create(&script_path).expect("create helper script");
+    writeln!(
+        script,
+        "#!/usr/bin/env bash\npwd > ran_from.txt\n"
+    )
+    .expect("write helper script");
+    drop(script);
+    let mut perms = fs::metadata(&script_path)
+        .expect("metadata for script")
+        .permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&script_path, perms).expect("make script executable");
+
+    let script_file = root.join("rhaskfile.rhai");
+    let mut file = fs::File::create(&script_file).expect("create Rhai script");
+    writeln!(
+        file,
+        r#"
+            task("run_script", || {{
+                dir("scripts");
+                actions(|| {{
+                    exec(cmd(["./hello.sh"]).build());
+                }});
+            }});
+        "#
+    )
+    .expect("write rhaskfile");
+
+    rhask()
+        .current_dir(root)
+        .args(["run", "run_script"])
+        .assert()
+        .success();
+
+    let ran_from = fs::read_to_string(scripts.join("ran_from.txt")).expect("read script output");
+    let expected = scripts
+        .canonicalize()
+        .expect("canonical scripts dir")
+        .to_str()
+        .expect("utf8 path")
+        .to_string();
+    assert_eq!(ran_from.trim(), expected);
+}
+
 #[test]
 fn dir_settings_do_not_leak_between_triggered_tasks() {
     let temp = tempdir().expect("create temp dir");
@@ -360,14 +416,14 @@ fn dir_settings_do_not_leak_between_triggered_tasks() {
             task("child_task", || {{
                 dir("child_dir");
                 actions(|| {{
-                    exec("pwd > child_cwd.txt");
+                    exec(cmd(["sh", "-c", "pwd > child_cwd.txt"]).build());
                 }});
             }});
 
             task("parent_task", || {{
                 dir("parent_dir");
                 actions(|| {{
-                    exec("pwd > parent_cwd.txt");
+                    exec(cmd(["sh", "-c", "pwd > parent_cwd.txt"]).build());
                     trigger("child_task");
                 }});
             }});
@@ -417,7 +473,7 @@ fn child_without_dir_runs_in_launcher_directory() {
         r#"
             task("child_task", || {{
                 actions(|| {{
-                    exec("pwd > child_cwd.txt");
+                    exec(cmd(["sh", "-c", "pwd > child_cwd.txt"]).build());
                 }});
             }});
 
@@ -471,13 +527,13 @@ fn child_dir_applies_even_when_parent_has_none() {
             task("child_task", || {{
                 dir("child_dir");
                 actions(|| {{
-                    exec("pwd > child_cwd.txt");
+                    exec(cmd(["sh", "-c", "pwd > child_cwd.txt"]).build());
                 }});
             }});
 
             task("parent_task", || {{
                 actions(|| {{
-                    exec("pwd > parent_cwd.txt");
+                    exec(cmd(["sh", "-c", "pwd > parent_cwd.txt"]).build());
                     trigger("child_task");
                 }});
             }});

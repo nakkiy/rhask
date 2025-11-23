@@ -25,7 +25,7 @@ impl ScriptEngine {
         // even though access is effectively single-threaded.
         #[allow(clippy::arc_with_non_send_sync)]
         let registry = Arc::new(Mutex::new(TaskRegistry::new()));
-        let exec_state = Arc::new(Mutex::new(ExecutionState::default()));
+        let exec_state = Arc::new(Mutex::new(ExecutionState::new()));
         #[allow(clippy::arc_with_non_send_sync)]
         let build_stack = Arc::new(Mutex::new(BuildStack::new()));
 
@@ -127,7 +127,7 @@ impl ScriptEngine {
 
         if let Some(ast) = &self.ast {
             if let Some(func) = func {
-                let _scope = ActionScope::start(self.exec_state.clone(), task_dir);
+                let _scope = ActionScope::start(self.exec_state.clone(), task_dir)?;
                 trace!(
                     "run_task: invoking actions for '{}' with {} argument(s)",
                     full_path,
@@ -162,18 +162,48 @@ impl Default for ScriptEngine {
     }
 }
 
-#[derive(Default)]
 pub(crate) struct ExecutionState {
     contexts: Vec<ActionContext>,
+    base_dir: PathBuf,
 }
 
 impl ExecutionState {
-    fn push(&mut self, ctx: ActionContext) {
-        self.contexts.push(ctx);
+    fn new() -> Self {
+        let base_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        Self {
+            contexts: Vec::new(),
+            base_dir,
+        }
+    }
+
+    fn push(&mut self, working_dir: Option<PathBuf>) {
+        self.contexts.push(ActionContext::new(working_dir));
     }
 
     fn pop(&mut self) {
         self.contexts.pop();
+    }
+
+    fn enter_directory(
+        &self,
+        working_dir: Option<&PathBuf>,
+    ) -> Result<Option<PathBuf>, Box<EvalAltResult>> {
+        let target_dir = working_dir
+            .cloned()
+            .unwrap_or_else(|| self.base_dir.clone());
+        let previous_dir = env::current_dir().map_err(|err| {
+            user_error(format!("Failed to read current directory: {}", err))
+        })?;
+        if previous_dir != target_dir {
+            env::set_current_dir(&target_dir).map_err(|err| {
+                user_error(format!(
+                    "Failed to change working directory to '{}': {}",
+                    target_dir.display(),
+                    err
+                ))
+            })?;
+        }
+        Ok(Some(previous_dir))
     }
 
     pub(crate) fn is_active(&self) -> bool {
@@ -198,14 +228,21 @@ impl ActionContext {
 
 pub(crate) struct ActionScope {
     state: Arc<Mutex<ExecutionState>>,
+    previous_dir: Option<PathBuf>,
 }
 
 impl ActionScope {
-    pub(crate) fn start(state: Arc<Mutex<ExecutionState>>, working_dir: Option<PathBuf>) -> Self {
-        let mut guard = state.lock().unwrap();
-        guard.push(ActionContext::new(working_dir));
-        drop(guard);
-        Self { state }
+    pub(crate) fn start(
+        state: Arc<Mutex<ExecutionState>>,
+        working_dir: Option<PathBuf>,
+    ) -> Result<Self, Box<EvalAltResult>> {
+        let previous_dir = {
+            let mut guard = state.lock().unwrap();
+            let previous = guard.enter_directory(working_dir.as_ref())?;
+            guard.push(working_dir);
+            previous
+        };
+        Ok(Self { state, previous_dir })
     }
 
     pub(crate) fn start_nested(
@@ -213,13 +250,16 @@ impl ActionScope {
         label: &str,
         working_dir: Option<PathBuf>,
     ) -> Result<Self, Box<EvalAltResult>> {
-        let mut guard = state.lock().unwrap();
-        if !guard.is_active() {
-            return Err(actions_only_error(label));
-        }
-        guard.push(ActionContext::new(working_dir));
-        drop(guard);
-        Ok(Self { state })
+        let previous_dir = {
+            let mut guard = state.lock().unwrap();
+            if !guard.is_active() {
+                return Err(actions_only_error(label));
+            }
+            let previous = guard.enter_directory(working_dir.as_ref())?;
+            guard.push(working_dir);
+            previous
+        };
+        Ok(Self { state, previous_dir })
     }
 }
 
@@ -227,6 +267,11 @@ impl Drop for ActionScope {
     fn drop(&mut self) {
         let mut guard = self.state.lock().unwrap();
         guard.pop();
+        if let Some(prev) = self.previous_dir.take() {
+            if let Err(err) = env::set_current_dir(&prev) {
+                warn!("Failed to restore working directory: {}", err);
+            }
+        }
     }
 }
 
@@ -392,49 +437,6 @@ mod tests {
         assert!(
             err.to_string()
                 .contains("AST is not loaded. Run the script first."),
-            "unexpected error message: {}",
-            err
-        );
-    }
-
-    #[test]
-    fn exec_command_succeeds_inside_actions() {
-        let script = write_script(
-            r#"
-            task("exec_ok", || {
-                actions(|| {
-                    exec("true");
-                });
-            });
-        "#,
-        );
-        let mut engine = ScriptEngine::new();
-        engine
-            .run_script(script.path().to_str().unwrap())
-            .expect("load script");
-        engine
-            .run_task("exec_ok", &[])
-            .expect("exec should succeed");
-    }
-
-    #[test]
-    fn exec_command_reports_failure_status() {
-        let script = write_script(
-            r#"
-            task("exec_fail", || {
-                actions(|| {
-                    exec("exit 7");
-                });
-            });
-        "#,
-        );
-        let mut engine = ScriptEngine::new();
-        engine
-            .run_script(script.path().to_str().unwrap())
-            .expect("load script");
-        let err = engine.run_task("exec_fail", &[]).unwrap_err();
-        assert!(
-            err.to_string().contains("Command exited with failure"),
             "unexpected error message: {}",
             err
         );
